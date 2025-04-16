@@ -512,7 +512,7 @@ def test_send_pull_request_with_github_actions_token(
 ):
     """Test that GitHub Actions token works correctly."""
     repo_path = os.path.join(mock_output_dir, 'repo')
-    token = 'github-actions-token'
+    token = 'ghs_github-actions-token'  # Must start with ghs_
     repository = 'test-owner/test-repo'
 
     # Mock API responses
@@ -544,13 +544,16 @@ def test_send_pull_request_with_github_actions_token(
     )
 
     # Assert API calls
-    assert mock_get.call_count == 3
+    assert mock_get.call_count == 2
     assert mock_post.call_count == 1
 
     # Check GitHub Actions token validation call
     token_validation_call = mock_get.call_args_list[1]
-    assert token_validation_call[0][0] == 'https://api.github.com/repos/test-owner/test-repo'
-    assert token_validation_call[1]['headers']['Authorization'] == f'Bearer {token}'
+    assert (
+        token_validation_call[0][0]
+        == 'https://api.github.com/repos/test-owner/test-repo'
+    )
+    assert token_validation_call[1]['headers']['Authorization'] == f'token {token}'
 
     # Check PR creation
     pr_create_call = mock_post.call_args[1]
@@ -1316,7 +1319,7 @@ def test_main(
     # Run main function
     main()
 
-    mock_identify_token.assert_called_with('mock_token')
+    mock_identify_token.assert_called_with('mock_token', mock_args.repository)
 
     llm_config = LLMConfig(
         model=mock_args.llm_model,

@@ -308,7 +308,7 @@ def test_update_existing_pull_request(
     )
 
     # Assert: Check if the auto-generated comment was posted to the PR
-    comment_url = f'https://gitlab.com/api/v4/projects/{quote(f'{issue.owner}/{issue.repo}', safe="")}/issues/{issue.number}/notes'
+    comment_url = f"https://gitlab.com/api/v4/projects/{quote(f'{issue.owner}/{issue.repo}', safe='')}/issues/{issue.number}/notes"
     expected_comment = 'This is an issue resolution.'
     mock_requests_post.assert_called_once_with(
         comment_url,
@@ -697,7 +697,7 @@ def test_reply_to_comment(mock_get, mock_post, mock_issue):
 
     # Check that the correct request was made to the API
     mock_post.assert_called_once_with(
-        f'https://gitlab.com/api/v4/projects/{quote(f'{mock_issue.owner}/{mock_issue.repo}', safe="")}/merge_requests/{mock_issue.number}/discussions/{comment_id.split('/')[-1]}/notes',
+        f"https://gitlab.com/api/v4/projects/{quote(f'{mock_issue.owner}/{mock_issue.repo}', safe='')}/merge_requests/{mock_issue.number}/discussions/{comment_id.split('/')[-1]}/notes",
         headers={
             'Authorization': f'Bearer {token}',
             'Accept': 'application/json',
@@ -1162,7 +1162,7 @@ def test_main(
     # Run main function
     main()
 
-    mock_identify_token.assert_called_with('mock_token')
+    mock_identify_token.assert_called_with('mock_token', mock_args.repository)
 
     llm_config = LLMConfig(
         model=mock_args.llm_model,
