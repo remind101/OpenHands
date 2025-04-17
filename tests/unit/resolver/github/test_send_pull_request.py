@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 from unittest.mock import ANY, MagicMock, call, patch
@@ -1269,7 +1270,9 @@ def test_main(
     # Run main function
     main()
 
-    mock_identify_token.assert_called_with('mock_token', None, ANY)
+    mock_identify_token.assert_called_with(
+        'mock_token', mock_args.repository, mock_args.base_domain
+    )
 
     llm_config = LLMConfig(
         model=mock_args.llm_model,
@@ -1442,3 +1445,121 @@ rename to prompts/guess_success/pr-thread-check.jinja"""
         with open(new_path, 'r') as f:
             content = f.read()
         assert content == f'Content of {filename}', f'Content mismatch for {filename}'
+
+
+@patch('openhands.resolver.send_pull_request.identify_token')
+@patch('subprocess.run')
+@patch('httpx.post')
+@patch('httpx.get')
+def test_send_pull_request_github_actions_token(
+    mock_get,
+    mock_post,
+    mock_run,
+    mock_identify_token,
+    mock_issue,
+    mock_output_dir,
+):
+    """Test that send_pull_request works with a GitHub Actions token."""
+    repo_path = os.path.join(mock_output_dir, 'repo')
+    github_repo = 'test-owner/test-repo'
+    token = 'ghs_actions_token'  # Example GitHub Actions token format
+
+    # Create a dummy output.jsonl file
+    output_jsonl_path = os.path.join(mock_output_dir, 'output.jsonl')
+    with open(output_jsonl_path, 'w') as f:
+        # Write minimal valid JSON content for ResolverOutput
+        # Adjust fields as necessary if the structure changes
+        f.write(
+            json.dumps(
+                {
+                    'issue': mock_issue.model_dump(),
+                    'status': 'resolved',
+                    'pull_request': None,
+                    'metadata': {'patch_files': ['dummy.patch']},
+                    # Add required fields with dummy values
+                    'issue_type': 'issue',
+                    'instruction': 'Fix the bug',
+                    'base_commit': 'dummy_commit_sha',
+                    'git_patch': 'dummy patch content',
+                    'history': [],
+                    'metrics': {},
+                    'success': True,
+                    'comment_success': [True],
+                    'result_explanation': 'Dummy explanation',
+                    'error': None,
+                }
+            )
+            + '\n'
+        )
+
+    # Mock environment variable
+    with patch.dict(
+        os.environ,
+        {
+            'GITHUB_REPOSITORY': github_repo,
+            'LLM_API_KEY': 'mock_llm_key',
+            'LLM_MODEL': 'mock_llm_model',
+        },
+    ):
+        # Mock identify_token to return GITHUB platform
+        mock_identify_token.return_value = Platform.GITHUB
+
+        # Mock API responses
+        mock_get.side_effect = [
+            MagicMock(status_code=404),  # Branch doesn't exist
+            MagicMock(json=lambda: {'default_branch': 'main'}),  # Get default branch
+        ]
+        mock_post.return_value.json.return_value = {
+            'html_url': f'https://github.com/{github_repo}/pull/1'
+        }
+
+        # Mock subprocess.run calls
+        mock_run.side_effect = [
+            MagicMock(
+                returncode=0, stdout=''
+            ),  # 0. git config user.name (check if set - return empty to trigger setting)
+            MagicMock(returncode=0),  # 1. git config ... && git config ... (set config)
+            MagicMock(returncode=0),  # 2. git add .
+            MagicMock(
+                returncode=0, stdout='M dummy.patch\n'
+            ),  # 3. git status --porcelain (stdout needed)
+            MagicMock(returncode=0),  # 4. git commit -m ...
+            MagicMock(returncode=0),  # 5. git checkout -b
+            MagicMock(returncode=0),  # 6. git push
+        ]
+
+        # Call the function using the main entry point logic
+        # to ensure argparse picks up the default repository from env var
+        from openhands.resolver.send_pull_request import main as send_pr_main
+
+        # Mock sys.argv
+        test_argv = [
+            'send_pull_request.py',  # Script name is typically argv[0]
+            '--issue-number',
+            str(mock_issue.number),
+            '--output-dir',
+            mock_output_dir,  # Use the temp dir for output
+            '--patch-dir',
+            repo_path,
+            '--token',
+            token,
+            '--username',
+            'github-actions[bot]',  # Typical username for actions
+            '--pr-type',
+            'ready',
+            # --repository is omitted to test default from env var
+        ]
+        with patch('sys.argv', test_argv):
+            # Run the main function which includes argument parsing and the call
+            send_pr_main()
+
+        # Assert identify_token was called with the repository from env var
+        mock_identify_token.assert_called_once_with(token, github_repo, None)
+
+        # Assert other calls (simplified checks)
+        assert mock_get.call_count == 2
+        assert mock_run.call_count == 7
+        mock_post.assert_called_once()
+        post_data = mock_post.call_args[1]['json']
+        assert post_data['head'] == f'openhands-fix-issue-{mock_issue.number}'
+        assert post_data['base'] == 'main'

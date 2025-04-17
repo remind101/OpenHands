@@ -1151,7 +1151,8 @@ def test_main(
     mock_args.target_branch = None
     mock_args.reviewer = None
     mock_args.pr_title = None
-    mock_args.selected_repo = None
+    mock_args.selected_repo = 'mock_repo'
+    mock_args.base_domain = 'mock_domain'
     mock_parser.return_value.parse_args.return_value = mock_args
 
     # Setup environment variables
@@ -1171,7 +1172,7 @@ def test_main(
     # Run main function
     main()
 
-    mock_identify_token.assert_called_with('mock_token', None, ANY)
+    mock_identify_token.assert_called_with('mock_token', 'mock_repo', 'mock_domain')
 
     llm_config = LLMConfig(
         model=mock_args.llm_model,

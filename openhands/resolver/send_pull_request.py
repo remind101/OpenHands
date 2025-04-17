@@ -651,6 +651,12 @@ def main() -> None:
         help='Base URL for the LLM model.',
     )
     parser.add_argument(
+        '--repository',
+        type=str,
+        default=os.environ.get('GITHUB_REPOSITORY'),
+        help='Repository name in format owner/repo (defaults to GITHUB_REPOSITORY env var)',
+    )
+    parser.add_argument(
         '--target-branch',
         type=str,
         default=None,
