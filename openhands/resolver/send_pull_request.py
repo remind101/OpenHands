@@ -677,11 +677,12 @@ def main() -> None:
     parser.add_argument(
         '--base-domain',
         type=str,
-        default=None,
+        default='github.com',
         help='Base domain for the git server (defaults to "github.com" for GitHub and "gitlab.com" for GitLab)',
     )
     my_args = parser.parse_args()
 
+    logger.warn(f'Base domain: {my_args.base_domain}')
     token = my_args.token or os.getenv('GITHUB_TOKEN') or os.getenv('GITLAB_TOKEN')
     if not token:
         raise ValueError(

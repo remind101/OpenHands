@@ -98,11 +98,14 @@ async def complete_runtime(
     logger.info('-' * 30)
     obs: Observation
 
+    logger.info('Changing directory to /workspace for final diff.')
     action = CmdRunAction(command='cd /workspace')
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
     if not isinstance(obs, CmdOutputObservation) or obs.exit_code != 0:
+        # Log the specific observation if cd fails even after interrupt attempt
+        logger.error(f"Failed 'cd /workspace' after interrupt attempt. Observation: {obs}")
         raise RuntimeError(
             f'Failed to change directory to /workspace. Observation: {obs}'
         )
@@ -135,8 +138,9 @@ async def complete_runtime(
     n_retries = 0
     git_patch = None
     while n_retries < 5:
+        # Note: Timeout handling from CmdRunAction is not directly translated here.
+        # Consider adding asyncio.wait_for if specific timeouts are critical.
         action = CmdRunAction(command=f'git diff --no-color --cached {base_commit}')
-        action.set_hard_timeout(600 + 100 * n_retries)
         logger.info(action, extra={'msg_type': 'ACTION'})
         obs = runtime.run_action(action)
         logger.info(obs, extra={'msg_type': 'OBSERVATION'})
@@ -570,8 +574,8 @@ def main() -> None:
     parser.add_argument(
         '--runtime-container-image',
         type=str,
-        default=None,
-        help='Container image to use.',
+        default=os.getenv('SANDBOX_BASE_CONTAINER_IMAGE'),
+        help='Container image to use. Defaults to SANDBOX_BASE_CONTAINER_IMAGE env var.',
     )
     parser.add_argument(
         '--max-iterations',
@@ -643,13 +647,14 @@ def main() -> None:
     parser.add_argument(
         '--base-domain',
         type=str,
-        default=None,
+        default='github.com',
         help='Base domain for the git server (defaults to "github.com" for GitHub and "gitlab.com" for GitLab)',
     )
 
     my_args = parser.parse_args()
 
     runtime_container_image = my_args.runtime_container_image
+    # Fallback to default only if argument and env var (checked via default) are not set, and not experimental
     if runtime_container_image is None and not my_args.is_experimental:
         runtime_container_image = (
             f'ghcr.io/all-hands-ai/runtime:{openhands.__version__}-nikolaik'
