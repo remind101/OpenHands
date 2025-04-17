@@ -51,6 +51,7 @@ def identify_token(
         }
 
         try:
+            logger.warn(f'making request to {github_repo_url}')
             github_repo_response = httpx.get(
                 github_repo_url, headers=github_bearer_headers, timeout=5
             )

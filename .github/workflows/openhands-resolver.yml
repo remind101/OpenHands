@@ -223,7 +223,6 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         with:
           script: |
-            const { exec } = require('@actions/exec');
             console.log("Installing OpenHands from remind101/OpenHands#github_installation_token_in_pull_request...");
             await exec.exec("python -m pip install --upgrade pip");
             await exec.exec("pip install git+https://github.com/remind101/OpenHands.git@github_installation_token_in_pull_request");
