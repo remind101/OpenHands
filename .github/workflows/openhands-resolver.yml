@@ -214,6 +214,7 @@ jobs:
             });
 
       - name: Install OpenHands
+        id: install_openhands
 
         uses: actions/github-script@v7
         env:
