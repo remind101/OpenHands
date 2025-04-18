@@ -247,16 +247,6 @@ jobs:
             --max-iterations ${{ env.MAX_ITERATIONS }} \
             --comment-id ${{ env.COMMENT_ID }}
             
-      - name: Dump all docker logs including stopped containers
-        if: always() # Always run this step to capture logs
-        run: |
-          echo "--- Dumping logs for all Docker containers (including stopped) ---"
-          for container_id in $(docker ps -aq); do
-            echo "--- Logs for container: $container_id ---"
-            docker logs "$container_id" || echo "--- Failed to get logs for container: $container_id ---"
-            echo "--- End logs for container: $container_id ---"
-          done
-          echo "--- Finished dumping all container logs ---"
 
       - name: Check resolution result
         id: check_result
