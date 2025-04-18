@@ -99,7 +99,9 @@ async def complete_runtime(
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
     if not isinstance(obs, CmdOutputObservation) or obs.exit_code != 0:
         # Log the specific observation if cd fails even after interrupt attempt
-        logger.error(f"Failed 'cd /workspace' after interrupt attempt. Observation: {obs}")
+        logger.error(
+            f"Failed 'cd /workspace' after interrupt attempt. Observation: {obs}"
+        )
         raise RuntimeError(
             f'Failed to change directory to /workspace. Observation: {obs}'
         )
@@ -151,7 +153,6 @@ async def complete_runtime(
             await asyncio.sleep(10)
         else:
             raise ValueError(f'Unexpected observation type: {type(obs)}')
-
 
     return {'git_patch': git_patch}
 
@@ -223,6 +224,7 @@ async def process_issue(
     await runtime.connect()
 
     def on_event(evt: Event) -> None:
+        pass
 
     runtime.event_stream.subscribe(EventStreamSubscriber.MAIN, on_event, str(uuid4()))
 
