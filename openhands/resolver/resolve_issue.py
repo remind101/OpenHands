@@ -56,6 +56,9 @@ def initialize_runtime(
     This function is called before the runtime is used to run the agent.
     Currently it does nothing.
     """
+    logger.info('-' * 30)
+    logger.info('BEGIN Runtime Completion Fn')
+    logger.info('-' * 30)
     obs: Observation
 
     action = CmdRunAction(command='cd /workspace')
@@ -90,6 +93,9 @@ async def complete_runtime(
     If you need to do something in the sandbox to get the correctness metric after
     the agent has run, modify this function.
     """
+    logger.info('-' * 30)
+    logger.info('BEGIN Runtime Completion Fn')
+    logger.info('-' * 30)
     obs: Observation
 
     logger.info('Changing directory to /workspace for final diff.')
@@ -154,6 +160,9 @@ async def complete_runtime(
         else:
             raise ValueError(f'Unexpected observation type: {type(obs)}')
 
+    logger.info('-' * 30)
+    logger.info('END Runtime Completion Fn')
+    logger.info('-' * 30)
     return {'git_patch': git_patch}
 
 
@@ -224,7 +233,7 @@ async def process_issue(
     await runtime.connect()
 
     def on_event(evt: Event) -> None:
-        pass
+        logger.info(evt)
 
     runtime.event_stream.subscribe(EventStreamSubscriber.MAIN, on_event, str(uuid4()))
 
