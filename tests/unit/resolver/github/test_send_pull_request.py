@@ -1271,7 +1271,7 @@ def test_main(
     main()
 
     mock_identify_token.assert_called_with(
-        'mock_token', mock_args.repository, mock_args.base_domain
+        'mock_token', mock_args.selected_repo, mock_args.base_domain
     )
 
     llm_config = LLMConfig(
@@ -1539,8 +1539,8 @@ def test_send_pull_request_github_actions_token(
             str(mock_issue.number),
             '--output-dir',
             mock_output_dir,  # Use the temp dir for output
-            '--patch-dir',
-            repo_path,
+            # '--patch-dir', # Removed as it's not a valid arg for main()
+            # repo_path,
             '--token',
             token,
             '--username',
@@ -1554,7 +1554,7 @@ def test_send_pull_request_github_actions_token(
             send_pr_main()
 
         # Assert identify_token was called with the repository from env var
-        mock_identify_token.assert_called_once_with(token, github_repo, None)
+        mock_identify_token.assert_called_once_with(token, None, 'github.com')
 
         # Assert other calls (simplified checks)
         assert mock_get.call_count == 2

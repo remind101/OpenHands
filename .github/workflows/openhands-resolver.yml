@@ -100,14 +100,18 @@ jobs:
       - name: Determine GitHub Token
         id: determine_token
         run: |
+          TOKEN_TYPE="Default GITHUB_TOKEN"
           if [[ -n "${{ env.APP_ID_SECRET }}" && -n "${{ env.PRIVATE_KEY_SECRET }}" && -n "${{ steps.generate_token.outputs.token }}" ]]; then
             echo "RESOLVER_GITHUB_TOKEN=${{ steps.generate_token.outputs.token }}" >> $GITHUB_ENV
+            TOKEN_TYPE="App Token"
           elif [[ -n "${{ secrets.PAT_TOKEN }}" ]]; then
             echo "RESOLVER_GITHUB_TOKEN=${{ secrets.PAT_TOKEN }}" >> $GITHUB_ENV
+            TOKEN_TYPE="PAT Token"
           else
             echo "RESOLVER_GITHUB_TOKEN=${{ github.token }}" >> $GITHUB_ENV
+            # TOKEN_TYPE remains "Default GITHUB_TOKEN"
           fi
-          echo "Using token type: $( ( [[ -n \"${{ env.APP_ID_SECRET }}\" && -n \"${{ env.PRIVATE_KEY_SECRET }}\" && -n \"${{ steps.generate_token.outputs.token }}\" ]] && echo \"App Token\" ) || ( [[ -n \"${{ secrets.PAT_TOKEN }}\" ]] && echo \"PAT Token\" ) || echo \"Default GITHUB_TOKEN\" )"
+          echo "Using token type: $TOKEN_TYPE"
 
       - name: Checkout repository
         uses: actions/checkout@v4
