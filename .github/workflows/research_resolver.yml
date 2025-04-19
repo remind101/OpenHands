@@ -16,22 +16,118 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Fetch entire history; might be needed by agent for git analysis
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10' # Using 3.10 for now
+          python-version: '3.11' # Use 3.11 as it's common now
 
-      - name: Install dependencies
+      - name: Install Poetry
         run: |
-          python -m pip install --upgrade pip
-          if [ -f scripts/requirements.txt ]; then pip install -r scripts/requirements.txt; fi
+          pip install poetry
 
-      - name: Run Research Resolver Script
+      - name: Install OpenHands Dependencies
+        run: |
+          poetry install --no-interaction --no-ansi
+
+      - name: Prepare Agent Task
+        id: prepare_task
+        run: ./.github/scripts/prepare_task.sh
+
+      - name: Run OpenHands Agent
+        id: run_agent
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }} # Placeholder for the LLM API key secret
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          REPO_CONTEXT: ${{ toJson(github.repository) }} # Pass repository context
-          ISSUE_CONTEXT: ${{ toJson(github.event.issue) }} # Pass issue context
-        run: python scripts/research_resolver.py
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Pass token in case agent tools need it
+          LOG_LEVEL: INFO # Or DEBUG for more verbose logs
+          # Set other necessary env vars for OpenHands if any (e.g., specific model)
+          # OPENHANDS_LLM_MODEL: "gpt-4-turbo" # Example
+        run: |
+          AGENT_OUTPUT_LOG="/tmp/agent_output.log"
+          echo "Starting OpenHands agent..."
+          # Assuming CodeActAgent is appropriate, adjust if needed
+          # Using --no-auto-continue for non-interactive execution
+          # Redirecting stdout/stderr to log file
+          # Using `|| true` so the workflow step doesn't fail immediately if agent exits non-zero
+          poetry run python -m openhands.core.main \
+            -f ${{ steps.prepare_task.outputs.task_file }} \
+            -c CodeActAgent \
+            -i 15 \
+            --no-auto-continue \
+            > $AGENT_OUTPUT_LOG 2>&1 || true
+
+          # Check if output log was created and is not empty
+          if [ -s "$AGENT_OUTPUT_LOG" ]; then
+            echo "Agent finished. Output captured."
+            echo "::set-output name=status::success"
+          else
+            echo "Agent finished, but output log is missing or empty."
+            # Attempt to read exit code if possible (might require agent modification)
+            # For now, just mark as failure
+            echo "::set-output name=status::failure"
+          fi
+          echo "::set-output name=output_log::$AGENT_OUTPUT_LOG"
+
+      - name: Prepare Comment Body
+        id: prepare_comment
+        run: |
+          STATUS=${{ steps.run_agent.outputs.status }}
+          LOG_FILE=${{ steps.run_agent.outputs.output_log }}
+          COMMENT_BODY_FILE="/tmp/comment_body.md"
+
+          if [ "$STATUS" == "success" ]; then
+            echo "Automated analysis for research issue:" > $COMMENT_BODY_FILE
+            echo "" >> $COMMENT_BODY_FILE
+            echo '```log' >> $COMMENT_BODY_FILE
+            # Truncate log to avoid hitting GitHub comment limits (65536 chars)
+            head -c 65000 "$LOG_FILE" >> $COMMENT_BODY_FILE
+            echo '' >> $COMMENT_BODY_FILE # Ensure newline before end marker
+            echo '```' >> $COMMENT_BODY_FILE
+            echo "" >> $COMMENT_BODY_FILE
+            echo "*Action run log might be truncated. Full log available in Action run details.*" >> $COMMENT_BODY_FILE
+          else
+            echo "**Error:** The Research Resolver action failed." > $COMMENT_BODY_FILE
+            echo "" >> $COMMENT_BODY_FILE
+            echo "The agent did not produce any output or exited unexpectedly. Please check the Action run logs for details." >> $COMMENT_BODY_FILE
+            if [ -f "$LOG_FILE" ]; then
+              # Include snippet if log exists but was empty or agent failed early
+              echo "" >> $COMMENT_BODY_FILE
+              echo "**Agent Log Snippet:**" >> $COMMENT_BODY_FILE
+              echo '```log' >> $COMMENT_BODY_FILE
+              head -c 2000 "$LOG_FILE" >> $COMMENT_BODY_FILE # Small snippet
+              echo '' >> $COMMENT_BODY_FILE
+              echo '```' >> $COMMENT_BODY_FILE
+            fi
+          fi
+          # Escape for JSON and set output
+          ESCAPED_BODY=$(jq -Rs '.' < $COMMENT_BODY_FILE)
+          echo "::set-output name=body::$ESCAPED_BODY"
+
+      - name: Post Comment to Issue
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const body = ${{ steps.prepare_comment.outputs.body }};
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+
+      - name: Add Processed Label
+        if: steps.run_agent.outputs.status == 'success' # Only label if agent succeeded
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['research-answered']
+            });
