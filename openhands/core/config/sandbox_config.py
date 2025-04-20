@@ -76,6 +76,7 @@ class SandboxConfig(BaseModel):
     docker_runtime_kwargs: dict | None = Field(default=None)
     selected_repo: str | None = Field(default=None)
 
+    repo_default_ref_override: str | None = Field(default=None, description='Comma-separated list of repo_url#ref pairs to override default branch/ref during cloning')
     model_config = {'extra': 'forbid'}
 
     @classmethod

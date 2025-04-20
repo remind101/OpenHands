@@ -7,6 +7,7 @@ import random
 import shutil
 import string
 import tempfile
+import re
 from abc import abstractmethod
 from pathlib import Path
 from types import MappingProxyType
@@ -128,6 +129,7 @@ class Runtime(FileEditRuntimeMixin):
             self.plugins.append(VSCodeRequirement())
 
         self.status_callback = status_callback
+        self.repo_default_ref_override = config.sandbox.repo_default_ref_override
         self.attach_to_existing = attach_to_existing
 
         self.config = copy.deepcopy(config)
@@ -364,12 +366,47 @@ class Runtime(FileEditRuntimeMixin):
         # Clone repository command
         clone_command = f'git clone {remote_repo_url} {dir_name}'
 
-        # Checkout to appropriate branch
-        checkout_command = (
-            f'git checkout {selected_branch}'
-            if selected_branch
-            else f'git checkout -b {openhands_workspace_branch}'
-        )
+        # Determine the ref to checkout
+        checkout_ref = None
+        if self.repo_default_ref_override:
+            try:
+                overrides = {}
+                for item in self.repo_default_ref_override.split(','):
+                    if '#' in item:
+                        repo_url, ref = item.strip().split('#', 1)
+                        # Normalize repo URL (remove potential auth tokens)
+                        normalized_repo_url = re.sub(r'https?://[^@]+@', 'https://', repo_url)
+                        overrides[normalized_repo_url] = ref
+                    else:
+                        logger.warning(f"Invalid format in REPO_DEFAULT_REF_OVERRIDE: '{item}'. Skipping.")
+
+                # Normalize the current remote URL for lookup
+                normalized_current_url = re.sub(r'https?://[^@]+@', 'https://', remote_repo_url)
+                # Also check without the .git suffix
+                normalized_current_url_no_git = normalized_current_url.removesuffix('.git')
+
+                if normalized_current_url in overrides:
+                    checkout_ref = overrides[normalized_current_url]
+                    logger.info(f"Using override ref '{checkout_ref}' for repo {normalized_current_url}")
+                elif normalized_current_url_no_git in overrides:
+                    checkout_ref = overrides[normalized_current_url_no_git]
+                    logger.info(f"Using override ref '{checkout_ref}' for repo {normalized_current_url_no_git}")
+
+            except Exception as e:
+                logger.error(f"Error parsing REPO_DEFAULT_REF_OVERRIDE: {e}. Using default behavior.")
+                checkout_ref = None # Fallback
+
+        # Construct checkout command
+        if checkout_ref:
+            # Use the override ref (works for branches and SHAs)
+            checkout_command = f'git checkout {checkout_ref}'
+        elif selected_branch:
+            # Use the branch specified by the caller
+            checkout_command = f'git checkout {selected_branch}'
+        else:
+            # Default: create a new workspace branch
+            checkout_command = f'git checkout -b {openhands_workspace_branch}'
+
 
         action = CmdRunAction(
             command=f'{clone_command} ; cd {dir_name} ; {checkout_command}',
