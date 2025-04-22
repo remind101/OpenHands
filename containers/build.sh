@@ -125,7 +125,7 @@ done
 
 if [[ $push -eq 1 ]]; then
   args+=" --push"
-  args+=" --cache-to=type=registry,ref=$DOCKER_REPOSITORY:$cache_tag,mode=max"
+  # args+=" --cache-to=type=registry,ref=$DOCKER_REPOSITORY:$cache_tag,mode=max"
 fi
 
 if [[ $load -eq 1 ]]; then
@@ -168,8 +168,6 @@ echo "Building for platform(s): $platform"
 docker buildx build \
   $args \
   --build-arg OPENHANDS_BUILD_VERSION="$OPENHANDS_BUILD_VERSION" \
-  --cache-from=type=registry,ref=$DOCKER_REPOSITORY:$cache_tag \
-  --cache-from=type=registry,ref=$DOCKER_REPOSITORY:$cache_tag_base-main \
   --platform $platform \
   --provenance=false \
   -f "$dir/Dockerfile" \
