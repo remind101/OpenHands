@@ -5,7 +5,7 @@ WORKDIR /app
 
 COPY ./frontend/package.json frontend/package-lock.json ./
 RUN npm install -g npm@10.5.1
-RUN npm ci
+RUN npm ci --network-timeout 600000
 
 COPY ./frontend ./
 RUN npm run build
@@ -63,6 +63,29 @@ RUN useradd -l -m -u $OPENHANDS_USER_ID -s /bin/bash openhands && \
     echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 RUN chown -R openhands:app /app && chmod -R 770 /app
 RUN sudo chown -R openhands:app $WORKSPACE_BASE && sudo chmod -R 770 $WORKSPACE_BASE
+
+# Install Playwright Chromium dependencies as root
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libnss3 \
+    libnspr4 \
+    libdbus-1-3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libgbm1 \
+    libatspi2.0-0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libxkbcommon0 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2 \
+    && rm -rf /var/lib/apt/lists/*
+
 USER openhands
 
 ENV VIRTUAL_ENV=/app/.venv \
@@ -70,7 +93,7 @@ ENV VIRTUAL_ENV=/app/.venv \
     PYTHONPATH='/app'
 
 COPY --chown=openhands:app --chmod=770 --from=backend-builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
-RUN playwright install --with-deps chromium
+RUN playwright install chromium
 
 COPY --chown=openhands:app --chmod=770 ./microagents ./microagents
 COPY --chown=openhands:app --chmod=770 ./openhands ./openhands
