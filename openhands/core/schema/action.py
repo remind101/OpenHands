@@ -91,3 +91,6 @@ class ActionType(str, Enum):
 
     CONDENSATION = 'condensation'
     """Condenses a list of events into a summary."""
+
+    WAIT = 'wait'
+    """Waits for a specified number of seconds before continuing."""
