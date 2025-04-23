@@ -115,13 +115,14 @@ jobs:
             echo "Using default GITHUB_TOKEN"
             echo "AUTH_TOKEN=${{ github.token }}" >> $GITHUB_ENV
           fi
-      - name: Get latest versions and create requirements.txt
+      - name: Create requirements.txt from branch
+        env:
+          # Use the determined auth token for git clone
+          GIT_TOKEN: ${{ env.AUTH_TOKEN }}
         run: |
-          python -m pip index versions openhands-ai > openhands_versions.txt
-          OPENHANDS_VERSION=$(head -n 1 openhands_versions.txt | awk '{print $2}' | tr -d '()')
-
-          # Create a new requirements.txt locally within the workflow, ensuring no reference to the repo's file
-          echo "openhands-ai==${OPENHANDS_VERSION}" > /tmp/requirements.txt
+          echo "Using openhands-ai from remind101/OpenHands@release/stable-with-patches"
+          # Create a new requirements.txt locally within the workflow
+          echo "git+https://${GIT_TOKEN}@github.com/remind101/OpenHands.git@release/stable-with-patches#egg=openhands-ai" > /tmp/requirements.txt
           cat /tmp/requirements.txt
 
       - name: Cache pip dependencies
