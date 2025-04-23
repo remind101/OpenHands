@@ -139,6 +139,25 @@ def test_kwargs_parsing_none(test_config, mock_event_stream, mock_docker_depende
     assert present_kwargs.issubset(expected_keys)
 
 
+def test_kwargs_parsing_dict_direct(
+    test_config, mock_event_stream, mock_docker_dependencies
+):
+    """Test direct assignment of dict to docker_runtime_kwargs."""
+    kwargs_dict = {'network_mode': 'bridge', 'labels': {'direct': 'dict'}}
+    # Directly assign the dictionary
+    test_config.sandbox.docker_runtime_kwargs = kwargs_dict
+
+    runtime = DockerRuntime(test_config, mock_event_stream)
+    runtime._init_container()  # Trigger the parsing and container run call
+
+    # Assert that containers.run was called with the parsed kwargs
+    mock_docker_dependencies.containers.run.assert_called_once()
+    call_args, call_kwargs = mock_docker_dependencies.containers.run.call_args
+    assert call_kwargs.get('network_mode') == 'bridge'
+    assert call_kwargs.get('labels') == {'direct': 'dict'}
+    assert 'volumes' not in call_kwargs  # Volumes handled separately
+
+
 # =============================================
 # Tests for volume merging logic
 # =============================================
@@ -264,10 +283,10 @@ def test_volume_merging_duplicate_custom(
 
     custom_volumes = {
         '/host/data': {'bind': '/data1', 'mode': 'ro'},
-        '/host/data': {
+        '/host/data': {  # noqa: F601
             'bind': '/data2',
             'mode': 'rw',
-        },  # Duplicate host path # noqa: F601
+        },  # Duplicate host path
     }
     test_config.sandbox.docker_runtime_kwargs = json.dumps({'volumes': custom_volumes})
 

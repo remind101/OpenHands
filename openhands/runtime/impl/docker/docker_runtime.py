@@ -268,21 +268,36 @@ class DockerRuntime(ActionExecutionClient):
         # also update with runtime_startup_env_vars
         environment.update(self.config.sandbox.runtime_startup_env_vars)
 
-        # Parse docker runtime kwargs from config string
+        # Parse or use docker runtime kwargs from config
         parsed_kwargs = {}
-        if self.config.sandbox.docker_runtime_kwargs:
-            try:
-                parsed_kwargs = json.loads(self.config.sandbox.docker_runtime_kwargs)
-                if not isinstance(parsed_kwargs, dict):
-                    raise ValueError('docker_runtime_kwargs must be a JSON object')
-            except json.JSONDecodeError as e:
-                logger.error(f'Failed to parse docker_runtime_kwargs JSON: {e}')
-                # Decide if we should raise an error or continue with default kwargs
-                # For now, log error and continue without custom kwargs
-                parsed_kwargs = {}
-            except ValueError as e:
-                logger.error(f'Invalid docker_runtime_kwargs: {e}')
-                parsed_kwargs = {}
+        if isinstance(self.config.sandbox.docker_runtime_kwargs, str):
+            if (
+                self.config.sandbox.docker_runtime_kwargs.strip()
+            ):  # Ensure string is not empty
+                try:
+                    loaded_kwargs = json.loads(
+                        self.config.sandbox.docker_runtime_kwargs
+                    )
+                    if isinstance(loaded_kwargs, dict):
+                        parsed_kwargs = loaded_kwargs
+                    else:
+                        logger.error(
+                            f'Parsed docker_runtime_kwargs is not a dictionary (type: {type(loaded_kwargs)}). Ignoring.'
+                        )
+                        # parsed_kwargs remains {}
+                except json.JSONDecodeError as e:
+                    logger.error(
+                        f'Failed to parse docker_runtime_kwargs JSON string: {e}. Ignoring.'
+                    )
+                    # parsed_kwargs remains {}
+            else:
+                logger.debug('docker_runtime_kwargs is an empty string. Ignoring.')
+        elif isinstance(self.config.sandbox.docker_runtime_kwargs, dict):
+            # If it's already a dict, use it directly (make a copy to avoid modifying original)
+            # Using copy.deepcopy() would be safer if nested structures are expected,
+            # but a shallow copy is likely sufficient here.
+            parsed_kwargs = self.config.sandbox.docker_runtime_kwargs.copy()
+            logger.debug('Using docker_runtime_kwargs dictionary directly.')
 
         # Initialize volumes dictionary
         volumes = {}
