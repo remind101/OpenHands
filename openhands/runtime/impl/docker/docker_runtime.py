@@ -1,3 +1,4 @@
+import json
 import os
 from functools import lru_cache
 from typing import Callable
@@ -267,24 +268,91 @@ class DockerRuntime(ActionExecutionClient):
         # also update with runtime_startup_env_vars
         environment.update(self.config.sandbox.runtime_startup_env_vars)
 
+        # Parse docker runtime kwargs from config string
+        parsed_kwargs = {}
+        if self.config.sandbox.docker_runtime_kwargs:
+            try:
+                parsed_kwargs = json.loads(self.config.sandbox.docker_runtime_kwargs)
+                if not isinstance(parsed_kwargs, dict):
+                    raise ValueError('docker_runtime_kwargs must be a JSON object')
+            except json.JSONDecodeError as e:
+                logger.error(f'Failed to parse docker_runtime_kwargs JSON: {e}')
+                # Decide if we should raise an error or continue with default kwargs
+                # For now, log error and continue without custom kwargs
+                parsed_kwargs = {}
+            except ValueError as e:
+                logger.error(f'Invalid docker_runtime_kwargs: {e}')
+                parsed_kwargs = {}
+
+        # Initialize volumes dictionary
+        volumes = {}
+
+        # Add workspace volume mount if configured
         self.log('debug', f'Workspace Base: {self.config.workspace_base}')
         if (
             self.config.workspace_mount_path is not None
             and self.config.workspace_mount_path_in_sandbox is not None
         ):
-            # e.g. result would be: {"/home/user/openhands/workspace": {'bind': "/workspace", 'mode': 'rw'}}
-            volumes = {
-                self.config.workspace_mount_path: {
-                    'bind': self.config.workspace_mount_path_in_sandbox,
-                    'mode': 'rw',
-                }
+            workspace_bind_path = self.config.workspace_mount_path_in_sandbox
+            volumes[self.config.workspace_mount_path] = {
+                'bind': workspace_bind_path,
+                'mode': 'rw',
             }
-            logger.debug(f'Mount dir: {self.config.workspace_mount_path}')
+            logger.debug(
+                f'Mounting workspace {self.config.workspace_mount_path} to {workspace_bind_path}'
+            )
         else:
             logger.debug(
-                'Mount dir is not set, will not mount the workspace directory to the container'
+                'Workspace mount paths not configured, skipping workspace mount.'
             )
-            volumes = None
+            workspace_bind_path = None  # No workspace mounted
+
+        # Extract and merge custom volumes from parsed_kwargs
+        custom_volumes = parsed_kwargs.pop('volumes', None)
+        if custom_volumes:
+            if not isinstance(custom_volumes, dict):
+                logger.error(
+                    "Invalid 'volumes' format in docker_runtime_kwargs, expected a dictionary. Skipping custom volumes."
+                )
+            else:
+                logger.debug(f'Adding custom volumes: {custom_volumes}')
+                for host_path, mount_details in custom_volumes.items():
+                    if isinstance(mount_details, dict) and 'bind' in mount_details:
+                        container_path = mount_details['bind']
+                        # Check for conflict with workspace mount
+                        if (
+                            workspace_bind_path
+                            and container_path == workspace_bind_path
+                        ):
+                            logger.warning(
+                                f'Custom volume mount for {container_path} conflicts with workspace mount. Prioritizing workspace mount.'
+                            )
+                            continue  # Skip this custom volume
+                        # Check if host path already exists in volumes (e.g., duplicate definition)
+                        if host_path in volumes:
+                            logger.warning(
+                                f'Duplicate volume definition for host path {host_path}. Overwriting with custom volume definition.'
+                            )
+                        volumes[host_path] = mount_details
+                    else:
+                        logger.warning(
+                            f'Invalid volume format for host path {host_path} in docker_runtime_kwargs. Skipping.'
+                        )
+
+        self.log(
+            'debug',
+            f'Final volumes for container: {volumes}',
+        )
+        self.log(
+            'debug',
+            f'Sandbox workspace (inside container): {self.config.workspace_mount_path_in_sandbox}',
+        )
+
+        command = get_action_execution_server_startup_command(
+            server_port=self._container_port,
+            plugins=self.plugins,
+            app_config=self.config,
+        )
         self.log(
             'debug',
             f'Sandbox workspace: {self.config.workspace_mount_path_in_sandbox}',
@@ -308,13 +376,13 @@ class DockerRuntime(ActionExecutionClient):
                 name=self.container_name,
                 detach=True,
                 environment=environment,
-                volumes=volumes,
+                volumes=volumes if volumes else None,  # Pass None if empty
                 device_requests=(
                     [docker.types.DeviceRequest(capabilities=[['gpu']], count=-1)]
                     if self.config.sandbox.enable_gpu
                     else None
                 ),
-                **(self.config.sandbox.docker_runtime_kwargs or {}),
+                **parsed_kwargs,  # Pass remaining parsed kwargs
             )
             self.log('debug', f'Container started. Server url: {self.api_url}')
             self.send_status_message('STATUS$CONTAINER_STARTED')
