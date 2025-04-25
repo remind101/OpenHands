@@ -2,6 +2,9 @@ from typing import Any
 
 import httpx
 
+from openhands.code_reviewer.reviewer_output import (
+    ReviewComment,  # Added for type hinting in post_review
+)
 from openhands.core.logger import openhands_logger as logger
 from openhands.resolver.interfaces.issue import (
     Issue,
@@ -481,6 +484,61 @@ class GithubPRHandler(GithubIssueHandler):
             thread_ids,
         )
 
+    def post_review(self, pr_number: int, comments: list[ReviewComment]) -> None:
+        """Post review comments to a GitHub pull request.
+
+        Args:
+            pr_number: The number of the pull request.
+            comments: A list of ReviewComment objects.
+        """
+        review_url = f'{self.base_url}/pulls/{pr_number}/reviews'
+        api_comments = []
+        general_comments = []
+
+        for comment in comments:
+            if comment.line is not None:
+                # Line-specific comment
+                api_comments.append(
+                    {
+                        'path': comment.path,
+                        'line': comment.line,
+                        'body': comment.comment,
+                        # Add side ('LEFT' or 'RIGHT') or start_line if needed by API/desired
+                    }
+                )
+            else:
+                # General comment (will be added to the main review body)
+                general_comments.append(f'- **{comment.path}**: {comment.comment}')
+
+        review_body = 'OpenHands AI Code Review:\n\n'
+        if general_comments:
+            review_body += '**General Feedback:**\n' + '\n'.join(general_comments)
+            if api_comments:
+                review_body += '\n\n**Line-Specific Feedback:** (see comments below)'
+        elif api_comments:
+            review_body += '**Line-Specific Feedback:** (see comments below)'
+        else:
+            pass
+
+        review_data = {
+            'body': review_body,
+            'event': 'COMMENT',  # Or 'REQUEST_CHANGES' or 'APPROVE'
+            'comments': api_comments,
+        }
+
+        response = httpx.post(review_url, headers=self.headers, json=review_data)
+
+        if response.status_code == 200:
+            logger.info(f'Successfully posted review to PR #{pr_number}.')
+        else:
+            logger.error(
+                f'Failed to post review to PR #{pr_number}: {response.status_code} {response.text}'
+            )
+            # Attempt to post as a general comment if review creation fails?
+            # For now, just log the error.
+            # Consider raising an exception
+            # raise RuntimeError(f"Failed to post review: {response.status_code} {response.text}")
+
     # Override processing of downloaded issues
     def get_pr_comments(
         self, pr_number: int, comment_id: int | None = None
@@ -522,6 +580,16 @@ class GithubPRHandler(GithubIssueHandler):
             params['page'] += 1
 
         return all_comments if all_comments else None
+
+    def get_pr_diff(self, pr_number: int) -> str:
+        """Get the diff content for a GitHub pull request."""
+        diff_url = f'{self.base_url}/pulls/{pr_number}'
+        diff_headers = self.get_headers()
+        diff_headers['Accept'] = 'application/vnd.github.v3.diff'
+
+        response = httpx.get(diff_url, headers=diff_headers)
+        response.raise_for_status()
+        return response.text
 
     def get_context_from_external_issues_references(
         self,

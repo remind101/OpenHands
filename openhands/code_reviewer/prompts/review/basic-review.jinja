@@ -1,0 +1,59 @@
+You are an AI code reviewer. Your task is to review the following pull request for the repository located in /workspace.
+An environment with the repository checked out at the PR's head commit is available for you to analyze the code.
+
+# Pull Request Details
+Title: {{ issue.title }}
+{% if issue.body %}
+Body:
+{{ issue.body }}
+{% endif %}
+
+# Code Changes (Diff)
+```diff
+{{ pr_diff }}
+```
+
+# Review Task
+Analyze the code changes provided in the diff based on the following parameters:
+- Review Level: `{{ review_level }}` (Specifies the granularity: 'line' for specific lines, 'file' for overall file changes, 'pr' for a high-level summary)
+- Review Depth: `{{ review_depth }}` (Specifies the thoroughness: 'quick' for obvious issues, 'medium' for standard checks, 'deep' for in-depth analysis including potential bugs and security concerns)
+
+{% if repo_instruction %}
+# Repository Guidelines/Instructions
+Please also consider the following repository-specific guidelines during your review:
+{{ repo_instruction }}
+{% endif %}
+
+# Output Format
+Your final output MUST be a single JSON list containing review comment objects. Each object should have the following structure:
+- `path`: (string) The full path to the file being commented on, relative to the repository root (e.g., "openhands/core/config.py").
+- `comment`: (string) The text of your review comment.
+- `line`: (integer, optional) The line number in the file (head commit) the comment refers to. Required if `review_level` is 'line'.
+
+
+Example Output:
+```json
+[
+  {
+    "path": "src/utils/parser.py",
+    "line": 42,
+    "comment": "Consider using a more descriptive variable name instead of 'x'."
+  },
+  {
+    "path": "src/main.py",
+    "comment": "This file lacks sufficient error handling for file I/O operations."
+  },
+  {
+    "path": "tests/test_api.py",
+    "line": 15,
+    "comment": "Potential race condition in this test setup."
+  }
+]
+```
+
+IMPORTANT:
+- Focus your review on the changes presented in the diff.
+- Adhere strictly to the specified JSON output format for your final response.
+- Do NOT attempt to modify any files. Your role is only to review.
+- Do NOT ask for human help or clarification. Provide the review based on the information given.
+- If no issues are found, output an empty JSON list `[]`.

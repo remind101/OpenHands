@@ -660,21 +660,59 @@ def main() -> None:
 
     my_args = parser.parse_args()
 
-    base_container_image = my_args.base_container_image
+    # Initialize container image variables
+    base_container_image: str | None = None
+    runtime_container_image: str | None = None
+    # Get container image from environment variable first
+    env_base_image_as_runtime = os.getenv(
+        'SANDBOX_BASE_CONTAINER_IMAGE'
+    )  # Check for base image env var to use as runtime
 
-    runtime_container_image = my_args.runtime_container_image
-
-    if runtime_container_image is not None and base_container_image is not None:
-        raise ValueError('Cannot provide both runtime and base container images.')
-
-    if (
-        runtime_container_image is None
-        and base_container_image is None
-        and not my_args.is_experimental
-    ):
-        runtime_container_image = (
-            f'ghcr.io/all-hands-ai/runtime:{openhands.__version__}-nikolaik'
+    if env_base_image_as_runtime:
+        logger.info(
+            f'Using SANDBOX_BASE_CONTAINER_IMAGE as runtime image: {env_base_image_as_runtime}'
         )
+        runtime_container_image = env_base_image_as_runtime
+        base_container_image = (
+            None  # Ensure base_container_image is None if env var is used
+        )
+    else:
+        # Fallback to command-line arguments if env var is not set
+        logger.info(
+            'SANDBOX_BASE_CONTAINER_IMAGE not set, checking command-line arguments for runtime/base images.'
+        )
+        arg_base_image = my_args.base_container_image
+        arg_runtime_image = my_args.runtime_container_image
+
+        if arg_runtime_image is not None and arg_base_image is not None:
+            raise ValueError(
+                'Cannot provide both --runtime-container-image and --base-container-image via arguments when SANDBOX_BASE_CONTAINER_IMAGE is not set.'
+            )
+
+        # Determine the final image configuration based on args
+        if arg_base_image is not None:
+            logger.info(f'Using base container image from args: {arg_base_image}')
+            base_container_image = arg_base_image
+            # runtime_container_image remains None
+        elif arg_runtime_image is not None:
+            logger.info(f'Using runtime container image from args: {arg_runtime_image}')
+            runtime_container_image = arg_runtime_image
+            # base_container_image remains None
+        elif not my_args.is_experimental:
+            # Neither arg provided, not experimental: use default runtime image
+            runtime_container_image = (
+                f'ghcr.io/all-hands-ai/runtime:{openhands.__version__}-nikolaik'
+            )
+            logger.info(
+                f'Defaulting runtime container image to: {runtime_container_image}'
+            )
+            # base_container_image remains None
+        else:
+            # Neither arg provided, IS experimental: leave both as None
+            logger.info(
+                'No container image specified via args or env, and is_experimental=True. Both images remain None.'
+            )
+            # Both base_container_image and runtime_container_image remain None
 
     parts = my_args.selected_repo.rsplit('/', 1)
     if len(parts) < 2:

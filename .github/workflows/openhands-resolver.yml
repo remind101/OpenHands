@@ -118,6 +118,7 @@ jobs:
           else
             echo "Using default GITHUB_TOKEN"
             echo "AUTH_TOKEN=${{ github.token }}" >> $GITHUB_ENV
+          fi
       - name: Log Auth Token Source
         run: |
           if [ -n "${{ steps.generate-token.outputs.token }}" ]; then
@@ -234,7 +235,7 @@ jobs:
 
           echo "MAX_ITERATIONS=${{ inputs.max_iterations || 50 }}" >> $GITHUB_ENV
           echo "SANDBOX_ENV_GITHUB_TOKEN=${{ env.AUTH_TOKEN }}" >> $GITHUB_ENV
-          echo "SANDBOX_ENV_BASE_CONTAINER_IMAGE=${{ inputs.base_container_image }}" >> $GITHUB_ENV
+          echo "SANDBOX_BASE_CONTAINER_IMAGE=${{ inputs.base_container_image }}" >> $GITHUB_ENV
 
           # Set branch variables
           echo "TARGET_BRANCH=${{ inputs.target_branch || 'main' }}" >> $GITHUB_ENV

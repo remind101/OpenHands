@@ -3,6 +3,7 @@ from urllib.parse import quote
 
 import httpx
 
+from openhands.code_reviewer.reviewer_output import ReviewComment
 from openhands.core.logger import openhands_logger as logger
 from openhands.resolver.interfaces.issue import (
     Issue,
@@ -609,3 +610,117 @@ class GitlabPRHandler(GitlabIssueHandler):
             converted_issues.append(issue_details)
 
         return converted_issues
+
+    def post_review(self, pr_number: int, comments: list[ReviewComment]) -> None:
+        """Post review comments to a GitLab merge request."""
+        if not comments:
+            logger.info(f'No comments to post for MR #{pr_number}.')
+            return
+
+        # Fetch MR details once to get commit SHAs needed for position
+        mr_details_url = f'{self.base_url}/merge_requests/{pr_number}'
+        mr_details = None
+        try:
+            response = httpx.get(mr_details_url, headers=self.headers)
+            response.raise_for_status()
+            mr_details = response.json()
+            # Basic validation of required fields
+            if (
+                not isinstance(mr_details, dict)
+                or not all(
+                    k in mr_details for k in ['diff_refs', 'target_project_id', 'iid']
+                )
+                or not isinstance(mr_details.get('diff_refs'), dict)
+                or not all(
+                    k in mr_details['diff_refs']
+                    for k in ['base_sha', 'start_sha', 'head_sha']
+                )
+            ):
+                logger.error(
+                    f'Missing or invalid required fields in MR details response for MR #{pr_number}. Cannot post positional comments.'
+                )
+                mr_details = None  # Invalidate details if incomplete
+
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f'HTTP error fetching MR details for MR #{pr_number}: {e.response.status_code} - {e.response.text}'
+            )
+        except Exception as e:
+            logger.error(f'Error fetching MR details for MR #{pr_number}: {e}')
+
+        # API endpoint for creating discussions (review comments)
+        discussions_url = f'{self.base_url}/merge_requests/{pr_number}/discussions'
+
+        for comment in comments:
+            payload: dict[str, Any] = {'body': comment.comment}
+
+            # Add position info if path and line are available and we have MR details
+            if comment.path and comment.line and mr_details:
+                payload['position'] = {
+                    'position_type': 'text',
+                    'base_sha': mr_details['diff_refs']['base_sha'],
+                    'start_sha': mr_details['diff_refs']['start_sha'],
+                    'head_sha': mr_details['diff_refs']['head_sha'],
+                    'new_path': comment.path,
+                    'new_line': comment.line,
+                    # 'old_path': comment.path, # Often same as new_path for additions
+                    # 'old_line': comment.line, # GitLab might infer this or it might be needed for changes
+                }
+            elif comment.path or comment.line:
+                logger.warning(
+                    f'Cannot add position for comment on MR #{pr_number} due to missing MR details or path/line: {comment}'
+                )
+
+            try:
+                response = httpx.post(
+                    discussions_url, headers=self.headers, json=payload
+                )
+                # GitLab returns 201 Created on success
+                if response.status_code == 201:
+                    logger.info(
+                        f'Successfully posted comment to MR #{pr_number}: {comment.comment[:50]}...'
+                    )
+                else:
+                    # Log non-201 responses as errors
+                    logger.error(
+                        f'Failed to post comment to MR #{pr_number}. Status: {response.status_code}, Response: {response.text}, Payload: {payload}'
+                    )
+                    # Optionally raise an exception or collect errors
+
+            except httpx.RequestError as e:
+                logger.error(
+                    f'Network error posting comment to MR #{pr_number}: {e}, Payload: {payload}'
+                )
+                # Optionally raise an exception or collect errors
+            except Exception as e:
+                logger.error(
+                    f'Unexpected error posting comment to MR #{pr_number}: {e}, Payload: {payload}'
+                )
+                # Optionally raise an exception or collect errors
+
+    def get_pr_diff(self, pr_number: int) -> str:
+        """Get the diff content for a GitLab merge request."""
+        url = f'{self.base_url}/merge_requests/{pr_number}/diffs'
+        try:
+            response = httpx.get(url, headers=self.headers)
+            response.raise_for_status()
+            diffs = response.json()
+            # The diffs endpoint returns a list of diff versions, usually the latest first
+            if isinstance(diffs, list) and len(diffs) > 0 and 'diff' in diffs[0]:
+                logger.info(f'Successfully fetched diff for GitLab MR #{pr_number}')
+                return diffs[0]['diff']
+            else:
+                logger.warning(
+                    f'Could not extract diff from response for MR #{pr_number}. Response: {diffs}'
+                )
+                return ''  # Return empty string if diff not found
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f'HTTP error fetching diff for MR #{pr_number}: {e.response.status_code} - {e.response.text}'
+            )
+            # Consider returning empty string or raising a custom exception
+            return ''
+        except Exception as e:
+            logger.error(f'Error fetching diff for MR #{pr_number}: {e}')
+            # Consider returning empty string or raising a custom exception
+            return ''
