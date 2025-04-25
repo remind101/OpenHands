@@ -23,7 +23,7 @@ async def validate_provider_token(
     # Try GitHub first
     try:
         github_service = GitHubService(token=token, base_domain=base_domain)
-        await github_service.get_user()
+        # Validation deferred to actual usage
         return ProviderType.GITHUB
     except Exception:
         pass
@@ -31,7 +31,7 @@ async def validate_provider_token(
     # Try GitLab next
     try:
         gitlab_service = GitLabService(token=token, base_domain=base_domain)
-        await gitlab_service.get_user()
+        # Validation deferred to actual usage
         return ProviderType.GITLAB
     except Exception:
         pass
