@@ -118,6 +118,14 @@ jobs:
           else
             echo "Using default GITHUB_TOKEN"
             echo "AUTH_TOKEN=${{ github.token }}" >> $GITHUB_ENV
+      - name: Log Auth Token Source
+        run: |
+          if [ -n "${{ steps.generate-token.outputs.token }}" ]; then
+            echo "Auth Token Source: GitHub App Token"
+          elif [ -n "${{ secrets.PAT_TOKEN }}" ]; then
+            echo "Auth Token Source: PAT Token"
+          else
+            echo "Auth Token Source: Default GITHUB_TOKEN"
           fi
       - name: Create requirements.txt and get branch SHA
         id: setup_reqs_and_sha
@@ -291,6 +299,7 @@ jobs:
           LLM_API_VERSION: ${{ inputs.LLM_API_VERSION }}
           PYTHONPATH: ""
         run: |
+          echo "Using AUTH_TOKEN: $(echo $AUTH_TOKEN | cut -c 1-4)...$(echo $AUTH_TOKEN | rev | cut -c 1-4 | rev)"
           cd /tmp && python -m openhands.resolver.resolve_issue \
             --selected-repo ${{ github.repository }} \
             --issue-number ${{ env.ISSUE_NUMBER }} \
