@@ -20,7 +20,7 @@ class GitlabIssueHandler(IssueHandlerInterface):
         repo: str,
         token: str,
         username: str | None = None,
-        base_domain: str = 'gitlab.com',
+        base_domain: str | None = 'gitlab.com',
     ):
         """Initialize a GitLab issue handler.
 
@@ -320,7 +320,7 @@ class GitlabPRHandler(GitlabIssueHandler):
         repo: str,
         token: str,
         username: str | None = None,
-        base_domain: str = 'gitlab.com',
+        base_domain: str | None = 'gitlab.com',
     ):
         """Initialize a GitLab PR handler.
 
@@ -611,7 +611,7 @@ class GitlabPRHandler(GitlabIssueHandler):
 
         return converted_issues
 
-    def post_review(self, pr_number: int, comments: list[ReviewComment]) -> None:
+    async def post_review(self, pr_number: int, comments: list[ReviewComment]) -> None:
         """Post review comments to a GitLab merge request."""
         if not comments:
             logger.info(f'No comments to post for MR #{pr_number}.')
@@ -621,7 +621,7 @@ class GitlabPRHandler(GitlabIssueHandler):
         mr_details_url = f'{self.base_url}/merge_requests/{pr_number}'
         mr_details = None
         try:
-            response = httpx.get(mr_details_url, headers=self.headers)
+            response = httpx.get(mr_details_url, headers=self.headers)  # noqa: ASYNC100
             response.raise_for_status()
             mr_details = response.json()
             # Basic validation of required fields
@@ -672,7 +672,7 @@ class GitlabPRHandler(GitlabIssueHandler):
                 )
 
             try:
-                response = httpx.post(
+                response = httpx.post(  # noqa: ASYNC100
                     discussions_url, headers=self.headers, json=payload
                 )
                 # GitLab returns 201 Created on success

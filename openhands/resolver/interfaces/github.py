@@ -1,6 +1,7 @@
 from typing import Any
 
 import httpx
+from pydantic import SecretStr
 
 from openhands.code_reviewer.reviewer_output import (
     ReviewComment,  # Added for type hinting in post_review
@@ -15,6 +16,8 @@ from openhands.resolver.utils import extract_issue_references
 
 
 class GithubIssueHandler(IssueHandlerInterface):
+    token: SecretStr
+
     def __init__(
         self,
         owner: str,
@@ -47,8 +50,9 @@ class GithubIssueHandler(IssueHandlerInterface):
 
     def get_headers(self) -> dict[str, str]:
         return {
-            'Authorization': f'token {self.token}',
+            'Authorization': f'token {self.token.get_secret_value()}',
             'Accept': 'application/vnd.github.v3+json',
+            'X-GitHub-Api-Version': '2022-11-28',
         }
 
     def get_base_url(self) -> str:
@@ -312,11 +316,13 @@ class GithubIssueHandler(IssueHandlerInterface):
 
 
 class GithubPRHandler(GithubIssueHandler):
+    token: SecretStr
+
     def __init__(
         self,
         owner: str,
         repo: str,
-        token: str,
+        token: SecretStr,
         username: str | None = None,
         base_domain: str = 'github.com',
     ):
@@ -484,7 +490,7 @@ class GithubPRHandler(GithubIssueHandler):
             thread_ids,
         )
 
-    def post_review(self, pr_number: int, comments: list[ReviewComment]) -> None:
+    async def post_review(self, pr_number: int, comments: list[ReviewComment]) -> None:
         """Post review comments to a GitHub pull request.
 
         Args:
@@ -526,18 +532,10 @@ class GithubPRHandler(GithubIssueHandler):
             'comments': api_comments,
         }
 
-        response = httpx.post(review_url, headers=self.headers, json=review_data)
+        response = httpx.post(review_url, headers=self.headers, json=review_data)  # noqa: ASYNC100
+        response.raise_for_status()
 
-        if response.status_code == 200:
-            logger.info(f'Successfully posted review to PR #{pr_number}.')
-        else:
-            logger.error(
-                f'Failed to post review to PR #{pr_number}: {response.status_code} {response.text}'
-            )
-            # Attempt to post as a general comment if review creation fails?
-            # For now, just log the error.
-            # Consider raising an exception
-            # raise RuntimeError(f"Failed to post review: {response.status_code} {response.text}")
+        logger.info(f'Successfully posted review to PR #{pr_number}.')
 
     # Override processing of downloaded issues
     def get_pr_comments(

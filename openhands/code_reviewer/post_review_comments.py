@@ -1,12 +1,13 @@
 import argparse
+import asyncio
 import json
 import os
 from typing import cast
 
+from pydantic import SecretStr
+
 from openhands.code_reviewer.reviewer_output import ReviewerOutput
 from openhands.core.logger import openhands_logger as logger
-from openhands.integrations.github.client import GitHub
-from openhands.integrations.gitlab.client import GitLab
 from openhands.integrations.service_types import ProviderType
 from openhands.resolver.interfaces.github import GithubPRHandler
 from openhands.resolver.interfaces.gitlab import GitlabPRHandler
@@ -16,21 +17,27 @@ from openhands.resolver.interfaces.issue import (
 
 
 def get_pr_handler(
-    owner: str, repo: str, token: str | None, platform: ProviderType
+    owner: str,
+    repo: str,
+    token: str | None,
+    platform: ProviderType,
+    base_domain: str | None = None,
 ) -> IssueHandlerInterface:
     """Get the appropriate PR handler based on the platform."""
     if platform == ProviderType.GITHUB:
         gh_token = token or os.environ.get('GITHUB_TOKEN')
         if not gh_token:
             raise ValueError('GitHub token is required for GitHub PR handler')
-        gh = GitHub(gh_token)
-        return GithubPRHandler(gh, owner, repo)
+
+        return GithubPRHandler(token=SecretStr(gh_token), owner=owner, repo=repo)
     elif platform == ProviderType.GITLAB:
         gl_token = token or os.environ.get('GITLAB_TOKEN')
         if not gl_token:
             raise ValueError('GitLab token is required for GitLab PR handler')
-        gl = GitLab(gl_token)
-        return GitlabPRHandler(gl, owner, repo)
+
+        return GitlabPRHandler(
+            token=SecretStr(gl_token), owner=owner, repo=repo, base_domain=base_domain
+        )
     else:
         raise ValueError(f'Unsupported platform: {platform}')
 
@@ -42,6 +49,8 @@ def post_comments(
     pr_number: int,
     base_domain: str | None = None,
 ):
+    from openhands.code_reviewer.reviewer_output import ReviewComment
+
     """Reads review output and posts comments to the PR."""
     logger.info(f'Reading review output from: {output_file}')
     try:
@@ -52,7 +61,13 @@ def post_comments(
                 logger.error(f'Output file is empty: {output_file}')
                 return
             output_data = json.loads(line)
-            review_output = ReviewerOutput(**output_data)
+            # Manually construct ReviewComment objects
+            comments_data = output_data.pop(
+                'comments', []
+            )  # Get comments list, remove from dict
+            comments_objects = [ReviewComment(**c) for c in comments_data]
+            # Construct ReviewerOutput, passing the objects list
+            review_output = ReviewerOutput(**output_data, comments=comments_objects)
     except FileNotFoundError:
         logger.error(f'Output file not found: {output_file}')
         return
@@ -88,7 +103,7 @@ def post_comments(
         platform = ProviderType.GITLAB
 
     try:
-        pr_handler = get_pr_handler(owner, repo, token, platform)
+        pr_handler = get_pr_handler(owner, repo, token, platform, base_domain)
         pr_handler = cast(
             GithubPRHandler | GitlabPRHandler, pr_handler
         )  # Cast for type hinting
@@ -107,7 +122,15 @@ def post_comments(
             )
             return
 
-        pr_handler.post_review(pr_number=pr_number, comments=review_output.comments)
+        if not review_output.comments:
+            logger.info(
+                f'No comments found in output for PR #{pr_number}. Skipping posting.'
+            )
+            return
+        comments_to_post = review_output.comments
+        asyncio.run(
+            pr_handler.post_review(pr_number=pr_number, comments=comments_to_post)
+        )
 
         logger.info(f'Successfully posted comments to PR #{pr_number}.')
 
