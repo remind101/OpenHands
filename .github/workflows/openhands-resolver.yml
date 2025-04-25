@@ -84,6 +84,9 @@ jobs:
         )
       )
     runs-on: ubuntu-latest
+    env:
+      JOB_APP_ID: ${{ secrets.APP_ID }}
+      JOB_APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -97,7 +100,7 @@ jobs:
         id: generate-token
         # Attempting cache bust
         # Only run if App ID and Key are provided via secrets
-        if: ${{ secrets.APP_ID && secrets.APP_PRIVATE_KEY }}
+        if: ${{ env.JOB_APP_ID != '' && env.JOB_APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.APP_ID }}
