@@ -95,6 +95,7 @@ jobs:
 
       - name: Generate GitHub App Token
         id: generate-token
+        # Attempting cache bust
         # Only run if App ID and Key are provided via secrets
         if: ${{ secrets.APP_ID && secrets.APP_PRIVATE_KEY }}
         uses: actions/create-github-app-token@v1
