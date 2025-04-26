@@ -8,13 +8,8 @@ Body:
 {{ issue.body }}
 {% endif %}
 
-# Code Changes (Diff)
-```diff
-{{ pr_diff }}
-```
-
 # Review Task
-Analyze the code changes provided in the diff based on the following parameters:
+Analyze the code changes between the base branch (`{{ issue.base.ref }}`) and the head branch (`{{ issue.head.ref }}`) using git commands (e.g., `git diff origin/{{ issue.base.ref }}...origin/{{ issue.head.ref }}`). Base your review on the following parameters:
 - Review Level: `{{ review_level }}` (Specifies the granularity: 'line' for specific lines, 'file' for overall file changes, 'pr' for a high-level summary)
 - Review Depth: `{{ review_depth }}` (Specifies the thoroughness: 'quick' for obvious issues, 'medium' for standard checks, 'deep' for in-depth analysis including potential bugs and security concerns)
 
@@ -25,13 +20,13 @@ Please also consider the following repository-specific guidelines during your re
 {% endif %}
 
 # Output Format
-Your final output MUST be a single JSON list containing review comment objects. Each object should have the following structure:
+Your final action MUST be the `finish` action. The `message` argument of this action MUST contain a single JSON list containing review comment objects. Each object should have the following structure:
 - `path`: (string) The full path to the file being commented on, relative to the repository root (e.g., "openhands/core/config.py").
 - `comment`: (string) The text of your review comment.
 - `line`: (integer, optional) The line number in the file (head commit) the comment refers to. Required if `review_level` is 'line'.
 
 
-Example Output:
+Example of the JSON list structure (to be placed inside the `finish` action's `message` argument):
 [
   {
     "path": "src/utils/parser.py",
@@ -50,10 +45,10 @@ Example Output:
 ]
 
 IMPORTANT:
-- Focus your review on the changes presented in the diff.
+- Focus your review on the changes between the base branch (`{{ issue.base.ref }}`) and the head branch (`{{ issue.head.ref }}`).
 - Adhere strictly to the specified JSON output format for your final response.
 - Your response MUST contain ONLY the raw JSON list, without any surrounding text, explanations, or markdown formatting (like ```json).
 - Do NOT attempt to modify any files. Your role is only to review.
 - Do NOT ask for human help or clarification. Provide the review based on the information given.
-  - After providing the JSON list, use the `finish` action to signal completion.
+  - Use the `finish` action to signal completion. The `message` argument MUST contain the JSON list of review comments.
 - If no issues are found, output an empty JSON list `[]`.
