@@ -324,8 +324,6 @@ class GithubPRHandler(GithubIssueHandler):
         username: str | None = None,
         base_domain: str = 'github.com',
     ):
-        token_start = token[:8] if token else 'None'
-        logger.debug(f'Token in GithubPRHandler.__init__ starts with: {token_start}')
         """Initialize a GitHub PR handler.
 
         Args:
@@ -416,14 +414,6 @@ class GithubPRHandler(GithubIssueHandler):
             'Content-Type': 'application/json',
         }
 
-        # Log request details (including token start)
-        token_start = self.token[:8] if self.token else 'None'
-        log_headers = headers.copy()
-        if 'Authorization' in log_headers:
-            log_headers['Authorization'] = f'Bearer {token_start}... [REDACTED]'
-        logger.debug(
-            f'Sending GraphQL request:\nURL: {url}\nHeaders: {log_headers}\nVariables: {variables}\nQuery: {query}'
-        )
         response = httpx.post(
             url, json={'query': query, 'variables': variables}, headers=headers
         )

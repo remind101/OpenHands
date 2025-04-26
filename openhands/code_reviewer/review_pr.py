@@ -2,7 +2,6 @@ import argparse
 import asyncio
 import dataclasses  # Added for serialization
 import json
-import logging
 import os
 import pathlib
 import shutil
@@ -444,20 +443,6 @@ async def review_pr_entrypoint(
 ) -> None:
     issue: Issue | None = None
 
-    # Force logger configuration to DEBUG level
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s:%(levelname)s: %(filename)s:%(lineno)d - %(message)s'
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.setLevel(logging.DEBUG)
-    logger.propagate = (
-        False  # Prevent propagation to root logger if it has conflicting handlers
-    )
-    logger.debug('Logger reconfigured to DEBUG level for review_pr_entrypoint')
     # Setup output directory and log file early to ensure it exists for error logging
     output_file = os.path.join(output_dir, 'output', f'review_output_{pr_number}.jsonl')
     pathlib.Path(os.path.dirname(output_file)).mkdir(parents=True, exist_ok=True)
@@ -466,8 +451,6 @@ async def review_pr_entrypoint(
     logger.info(f'Using output directory: {output_dir}')
     logger.info(f'Writing output to {output_file}')
 
-    token_start = token[:8] if token else 'None'
-    logger.debug(f'Token received in review_pr_entrypoint starts with: {token_start}')
     """Review a single pull request.
 
     Args:
