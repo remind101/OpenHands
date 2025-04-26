@@ -42,7 +42,6 @@ from openhands.resolver.interfaces.issue import (  # Added IssueHandlerInterface
     IssueHandlerInterface,
 )
 from openhands.resolver.utils import (
-    codeact_user_response,
     get_unique_uid,
     identify_token,
     reset_logger_for_multiprocessing,
@@ -222,7 +221,7 @@ async def process_pr_for_review(
             config=config,
             initial_user_action=action,
             runtime=runtime,
-            fake_user_response_fn=codeact_user_response,
+            # fake_user_response_fn=codeact_user_response, # This is for interactive agents
         )
         logger.info(f'Agent loop finished. Final state: {state}')
         if state is None:
