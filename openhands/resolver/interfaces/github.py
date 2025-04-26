@@ -418,6 +418,13 @@ class GithubPRHandler(GithubIssueHandler):
             'Content-Type': 'application/json',
         }
 
+        # Log request details (excluding token)
+        log_headers = headers.copy()
+        if 'Authorization' in log_headers:
+            log_headers['Authorization'] = 'Bearer [REDACTED]'
+        logger.debug(
+            f'Sending GraphQL request:\nURL: {url}\nHeaders: {log_headers}\nVariables: {variables}\nQuery: {query}'
+        )
         response = httpx.post(
             url, json={'query': query, 'variables': variables}, headers=headers
         )
