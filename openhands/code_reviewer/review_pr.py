@@ -9,6 +9,7 @@ import shutil
 from typing import Any, Dict, List
 
 import aiofiles  # type: ignore[import-untyped]
+import httpx
 from jinja2 import Template
 from pydantic import SecretStr
 
@@ -465,6 +466,8 @@ async def review_pr_entrypoint(
     logger.info(f'Using output directory: {output_dir}')
     logger.info(f'Writing output to {output_file}')
 
+    token_start = token[:8] if token else 'None'
+    logger.debug(f'Token received in review_pr_entrypoint starts with: {token_start}')
     """Review a single pull request.
 
     Args:
@@ -623,6 +626,11 @@ async def review_pr_entrypoint(
             metrics=None,
             comments=[],
         )
+    except httpx.HTTPStatusError as e:
+        logger.error(f'HTTP Status Error: {e}')
+        logger.error(f'Response body: {e.response.text}')
+        # Re-raise the exception after logging
+        raise
     except Exception as e:
         logger.exception(
             f'Unexpected error during review_pr_entrypoint for PR {pr_number}:'
@@ -666,8 +674,6 @@ async def review_pr_entrypoint(
             async with aiofiles.open(output_file, mode='w') as f:
                 # Convert ReviewerOutput to dict, handling nested dataclasses and complex types
                 def default_serializer(obj):
-                    if isinstance(obj, SecretStr):
-                        return obj.get_secret_value()
                     if hasattr(obj, 'to_dict'):
                         # Use to_dict if available (like for Event subclasses)
                         return obj.to_dict()
@@ -885,7 +891,7 @@ def main() -> None:
     if not token_str:
         raise ValueError('Token is required.')
 
-    token = SecretStr(token_str)
+    token = token_str
 
     platform = call_async_from_sync(
         identify_token,

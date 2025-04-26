@@ -117,6 +117,11 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
+      - name: Log Generated Token Start
+        run: |
+          TOKEN="${{ steps.generate-token.outputs.token }}"
+          echo "Generated Token starts with: ${TOKEN:0:8}"
+
       - name: Determine Auth Token
         id: determine-auth-token
         run: |

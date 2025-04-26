@@ -316,29 +316,27 @@ class GithubIssueHandler(IssueHandlerInterface):
 
 
 class GithubPRHandler(GithubIssueHandler):
-    token: SecretStr
-
     def __init__(
         self,
         owner: str,
         repo: str,
-        token: SecretStr,  # Expect SecretStr here
+        token: str,  # Expect str here
         username: str | None = None,
         base_domain: str = 'github.com',
     ):
+        token_start = token[:8] if token else 'None'
+        logger.debug(f'Token in GithubPRHandler.__init__ starts with: {token_start}')
         """Initialize a GitHub PR handler.
 
         Args:
             owner: The owner of the repository
             repo: The name of the repository
-            token: The GitHub personal access token (as SecretStr)
+            token: The GitHub personal access token (as str)
             username: Optional GitHub username
             base_domain: The domain for GitHub Enterprise (default: "github.com")
         """
-        # Pass the secret value (str) to the superclass __init__ which expects str
-        super().__init__(owner, repo, token.get_secret_value(), username, base_domain)
-        # Assign the SecretStr directly to the subclass attribute
-        self.token = token  # This shadows the superclass's token attribute
+        # Pass the token (str) directly to the superclass __init__
+        super().__init__(owner, repo, token, username, base_domain)
 
         # Update download_url based on potentially shadowed attributes
         if self.base_domain == 'github.com':
@@ -418,10 +416,11 @@ class GithubPRHandler(GithubIssueHandler):
             'Content-Type': 'application/json',
         }
 
-        # Log request details (excluding token)
+        # Log request details (including token start)
+        token_start = self.token[:8] if self.token else 'None'
         log_headers = headers.copy()
         if 'Authorization' in log_headers:
-            log_headers['Authorization'] = 'Bearer [REDACTED]'
+            log_headers['Authorization'] = f'Bearer {token_start}... [REDACTED]'
         logger.debug(
             f'Sending GraphQL request:\nURL: {url}\nHeaders: {log_headers}\nVariables: {variables}\nQuery: {query}'
         )
