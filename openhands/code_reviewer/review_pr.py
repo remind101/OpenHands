@@ -476,9 +476,16 @@ async def run_review_task(
             return dataclasses.asdict(obj)
         if isinstance(obj, SecretStr):
             return obj.get_secret_value()  # Convert SecretStr to str
-        raise TypeError(
-            f'Object of type {obj.__class__.__name__} is not JSON serializable'
-        )
+        # For other types, try converting to string as a fallback
+        try:
+            # Check if it's something like an exception or traceback object
+            if isinstance(obj, BaseException):
+                return f'{type(obj).__name__}: {str(obj)}'
+            # Fallback for other non-serializable types
+            return str(obj)
+        except Exception:
+            # If str() fails, return a placeholder
+            return f'<unserializable object: {type(obj).__name__}>'
 
     try:
         pr_info_list = issue_handler.get_converted_issues([issue_number])
@@ -487,6 +494,8 @@ async def run_review_task(
 
         pr_info = pr_info_list[0]
         logger.info(f'Fetched PR info for #{pr_info.number}')
+        logger.info(f'Type of pr_info: {type(pr_info)}')
+        logger.info(f'Content of pr_info: {pr_info}')
     except Exception as e:
         logger.error(f'Failed to fetch PR info: {e}')
         # Print error output similar to main's exception handling
@@ -571,6 +580,8 @@ async def run_review_task(
 
     # 9. Process the PR using the core logic function
     try:
+        logger.info(f'Passing to process_review - Type of pr_info: {type(pr_info)}')
+        logger.info(f'Passing to process_review - Content of pr_info: {pr_info}')
         output = await process_review(
             issue=pr_info,
             platform=platform,
