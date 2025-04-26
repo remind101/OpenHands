@@ -17,6 +17,8 @@ First, ensure the latest changes are fetched using `git fetch origin`. Then, ana
 When reviewing changes:
 - Identify the file path from the `git diff` output (usually the line starting with `+++ b/`). This is the path in the head commit.
 - Comments should only be placed on lines that exist in the head commit (lines starting with `+` or ` ` within the diff hunk). Do not comment on removed lines (starting with `-`).
+    - **Check Existing Comments:** Before adding a comment, consider if similar feedback has already been provided by other reviewers on this PR. Avoid adding duplicate comments.
+    - **Write Actionable Feedback:** Ensure your comments are constructive and actionable. Suggest specific improvements or changes rather than just explaining what the code does.
 - **Line Number Determination and Verification:** Line numbers for comments MUST be determined **exclusively** by reading the file content from the `/workspace` directory (which is checked out to the head commit). Use `cat <file_path>` to get the content and `grep -n` (or manual counting in the `cat` output) to find the line number of the *exact* code you want to comment on. **Do NOT use the `git diff` output to determine or calculate line numbers.** This is unreliable. The line number reported by `grep -n` on the `/workspace` file is the **only** valid source for the `line` field in your comment. If the exact line text appears multiple times, use the surrounding code context (from the `cat` output) to identify the correct instance. The line numbers you provide MUST correspond to the line numbers in the head commit version.
 
 
