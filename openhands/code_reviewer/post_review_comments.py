@@ -55,12 +55,12 @@ def post_comments(
     logger.info(f'Reading review output from: {output_file}')
     try:
         with open(output_file, 'r') as f:
-            # Assuming only one line (one ReviewerOutput object) in the file
-            line = f.readline()
-            if not line:
+            # Read the entire file content
+            file_content = f.read()
+            if not file_content:
                 logger.error(f'Output file is empty: {output_file}')
                 return
-            output_data = json.loads(line)
+            output_data = json.loads(file_content)
             # Manually construct ReviewComment objects
             comments_data = output_data.pop(
                 'comments', []
