@@ -111,6 +111,9 @@ jobs:
         if: ${{ env.JOB_APP_ID != '' && env.JOB_APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@v1
         with:
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
