@@ -222,7 +222,7 @@ def response_to_actions(response: ModelResponse) -> list[Action]:
         actions.append(
             MessageAction(
                 content=str(assistant_msg.content) if assistant_msg.content else '',
-                wait_for_response=True,
+                wait_for_response=False,
             )
         )
 
