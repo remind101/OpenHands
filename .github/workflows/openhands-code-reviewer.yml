@@ -81,7 +81,7 @@ jobs:
         (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
         contains(github.event.comment.body, inputs.review_macro || '@openhands-reviewer') &&
         (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'COLLABORATOR' || github.event.comment.author_association == 'MEMBER') &&
-        github.event.issue.pull_request # Ensure the comment is on a PR
+        github.event.issue.pull_request
       ) ||
       (
         github.event_name == 'pull_request_review' &&
