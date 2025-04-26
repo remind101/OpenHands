@@ -1,3 +1,6 @@
+import asyncio
+import os
+import shutil
 from typing import Any
 from urllib.parse import urlparse
 
@@ -359,6 +362,61 @@ class GithubPRHandler(GithubIssueHandler):
         except ValueError:
             raise ValueError(f'Invalid PR number in URL: {pr_url}')
         return owner, repo, pr_number
+
+    async def _run_git_command(self, command: list[str], cwd: str) -> tuple[str, str]:
+        """Run a git command asynchronously and return stdout and stderr."""
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+        )
+        stdout, stderr = await process.communicate()
+        if process.returncode != 0:
+            raise RuntimeError(
+                f'Git command failed: {" ".join(command)}\nStderr: {stderr.decode()}'
+            )
+        return stdout.decode(), stderr.decode()
+
+    async def checkout_pr(self, pr_number: int, repo_dir: str):
+        """Checkout the specific PR branch into the specified directory."""
+        logger.info(f'Checking out PR #{pr_number} to {repo_dir}')
+
+        # Ensure repo_dir exists and is empty or remove it
+        if os.path.exists(repo_dir):
+            if os.listdir(repo_dir):
+                logger.warning(f'Directory {repo_dir} is not empty. Removing it.')
+                shutil.rmtree(repo_dir)
+                os.makedirs(repo_dir)
+        else:
+            os.makedirs(repo_dir)
+
+        # Fetch PR details from GitHub API
+        pr_api_url = f'{self.base_url}/pulls/{pr_number}'
+        async with httpx.AsyncClient() as client:
+            response = await client.get(pr_api_url, headers=self.headers)
+            response.raise_for_status()
+            pr_data = response.json()
+
+        head_sha = pr_data['head']['sha']
+        clone_url = self.get_clone_url()
+        pr_ref = f'pull/{pr_number}/head'
+
+        logger.info(f'Cloning {self.owner}/{self.repo} into {repo_dir}')
+        await self._run_git_command(['git', 'clone', clone_url, '.'], cwd=repo_dir)
+
+        logger.info(f'Fetching PR ref: {pr_ref}')
+        await self._run_git_command(
+            ['git', 'fetch', 'origin', f'{pr_ref}:{pr_ref}'], cwd=repo_dir
+        )
+
+        logger.info(f'Checking out PR ref: {pr_ref}')
+        await self._run_git_command(['git', 'checkout', pr_ref], cwd=repo_dir)
+
+        logger.info(f'Resetting to head SHA: {head_sha}')
+        await self._run_git_command(['git', 'reset', '--hard', head_sha], cwd=repo_dir)
+
+        logger.info(f'Successfully checked out PR #{pr_number} at commit {head_sha}')
 
     def download_pr_metadata(
         self, pull_number: int, comment_id: int | None = None
