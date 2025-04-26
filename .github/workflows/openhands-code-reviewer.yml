@@ -317,6 +317,7 @@ jobs:
             --is-experimental ${{ steps.install_openhands.outputs.isExperimental }} \
             --review-level ${{ inputs.review_level || 'line' }} \
             --review-depth ${{ inputs.review_depth || 'deep' }}
+            --llm-num-retries 5
 
 
       - name: Dump Docker Logs
