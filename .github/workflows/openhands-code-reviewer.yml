@@ -216,10 +216,10 @@ jobs:
             echo "Warning: PAT_USERNAME is not set, will use openhands-agent"
           fi
 
-      - name: Set environment variables
+      - name: Set environment variables and outputs
+        id: set_vars # Add ID here
         env:
           REVIEW_BODY: ${{ github.event.review.body || '' }}
-          SANDBOX_BASE_CONTAINER_IMAGE: ${{ env.SANDBOX_BASE_CONTAINER_IMAGE }}
         run: |
           # All triggers for this workflow relate to a Pull Request
           echo "PR_NUMBER=${{ github.event.pull_request.number || github.event.issue.number }}" >> $GITHUB_ENV
@@ -245,7 +245,7 @@ jobs:
             echo "No base_container_image input or environment variable found. Defaulting to empty."
             FINAL_BASE_IMAGE=""
           fi
-          echo "SANDBOX_BASE_CONTAINER_IMAGE=$FINAL_BASE_IMAGE" >> $GITHUB_ENV
+          echo "determined_base_image=$FINAL_BASE_IMAGE" >> $GITHUB_OUTPUT
 
       - name: Comment on PR with start message
         uses: actions/github-script@v7
@@ -305,7 +305,7 @@ jobs:
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_API_VERSION: ${{ inputs.LLM_API_VERSION }}
           PYTHONPATH: ""
-          SANDBOX_BASE_CONTAINER_IMAGE: ${{ env.SANDBOX_BASE_CONTAINER_IMAGE }}
+          SANDBOX_BASE_CONTAINER_IMAGE: ${{ steps.set_vars.outputs.determined_base_image }}
         run: |
           echo "Using AUTH_TOKEN: $(echo $AUTH_TOKEN | cut -c 1-4)...$(echo $AUTH_TOKEN | rev | cut -c 1-4 | rev)"
           # Run from the workspace directory where the repo is checked out
