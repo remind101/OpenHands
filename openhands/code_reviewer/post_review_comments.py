@@ -29,7 +29,7 @@ def get_pr_handler(
         if not gh_token:
             raise ValueError('GitHub token is required for GitHub PR handler')
 
-        return GithubPRHandler(token=SecretStr(gh_token), owner=owner, repo=repo)
+        return GithubPRHandler(token=gh_token, owner=owner, repo=repo)
     elif platform == ProviderType.GITLAB:
         gl_token = token or os.environ.get('GITLAB_TOKEN')
         if not gl_token:
