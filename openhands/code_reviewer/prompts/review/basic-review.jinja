@@ -21,6 +21,7 @@ When interpreting the output of `git diff`:
 - To calculate the correct line number for a line starting with `+` (an added line) or ` ` (a context line within the change hunk), start with `new_start` from the hunk header and count the lines (including context lines and added lines) within that hunk until you reach the line you want to comment on.
 - Do NOT use line numbers relative to the start of the hunk itself. Use the absolute line number within the file specified by `+++ b/`.
 - Comments should only be placed on lines that exist in the head commit (lines starting with `+` or ` ` within the diff hunk). Do not comment on removed lines (starting with `-`).
+- **Verification:** Before finalizing a comment for a specific line, you MUST verify that the calculated line number is correct by examining the actual file content in the `/workspace` directory (which is checked out to the head commit). Use commands like `cat`, `sed -n '<line_number>p' <file_path>`, `head`, or `tail` to confirm that the content at that line number in the file matches the content shown in the diff for the line you intend to comment on.
 
 
 {% if repo_instruction %}
