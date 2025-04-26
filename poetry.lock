@@ -4424,14 +4424,14 @@ types-tqdm = "*"
 
 [[package]]
 name = "litellm"
-version = "1.67.0"
+version = "1.67.2"
 description = "Library to easily interface with LLM API providers"
 optional = false
 python-versions = "!=2.7.*,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,!=3.5.*,!=3.6.*,!=3.7.*,>=3.8"
 groups = ["main"]
 files = [
-    {file = "litellm-1.67.0-py3-none-any.whl", hash = "sha256:d297126f45eea8d8a3df9c0de1d9491ff20e78dab5d1aa3820602082501ba89e"},
-    {file = "litellm-1.67.0.tar.gz", hash = "sha256:18439db292d85b1d886bfa35de9d999600ecc6b4fc1137f12e6810d2133c8cec"},
+    {file = "litellm-1.67.2-py3-none-any.whl", hash = "sha256:32df4d17b3ead17d04793311858965e41e83a7bdf9bd661895c0e6bc9c78dc8b"},
+    {file = "litellm-1.67.2.tar.gz", hash = "sha256:9e108827bff16af04fd4c35b0c1a1d6c7746c96db3870189a60141d449797487"},
 ]
 
 [package.dependencies]
@@ -10280,4 +10280,4 @@ testing = ["coverage[toml]", "zope.event", "zope.testing"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "86677ee9858b13ee966f15dea447e4514c7baba354322c8c2e15cb518390815b"
+content-hash = "afb15a619f22b041dcb26aee883b00fdd7fc080e9cc1737f7ff70c7cdb74bcc8"
