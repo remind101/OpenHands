@@ -292,11 +292,11 @@ async def process_review(
                 last_event = agent_history[-1]
                 if isinstance(last_event, AgentFinishAction):
                     logger.info(
-                        f'Agent finished. Attempting to parse review from finish message: {last_event.outputs.get("message", "<message not found>")[:200]}...'
+                        f'Agent finished. Attempting to parse review from final_thought: {last_event.final_thought[:200]}...'
                     )
                     try:
                         # Attempt to parse the final_thought directly as JSON
-                        parsed_content = json.loads(last_event.outputs['message'])
+                        parsed_content = json.loads(last_event.final_thought)
                         if isinstance(parsed_content, list):
                             # Found a list, try to validate it
                             validated_comments = []
@@ -345,13 +345,13 @@ async def process_review(
                                 comments = validated_comments
                                 found_review_in_finish = True
                                 logger.info(
-                                    f'Extracted {len(comments)} review comments from AgentFinishAction message.'
+                                    f'Extracted {len(comments)} review comments from AgentFinishAction final_thought.'
                                 )
                             else:
                                 # It was a list, but contained no valid comments
                                 parse_error = 'Agent finish message was a list but contained no valid comment objects.'
                                 logger.warning(
-                                    f'{parse_error} Message snippet: {last_event.outputs.get("message", "<message not found>")[:200]}'
+                                    f'{parse_error} Final thought snippet: {last_event.final_thought[:200]}'
                                 )
 
                         else:
@@ -360,7 +360,7 @@ async def process_review(
                                 'Agent finish message content was not a JSON list.'
                             )
                             logger.warning(
-                                f'{parse_error} Message snippet: {last_event.outputs.get("message", "<message not found>")[:200]}'
+                                f'{parse_error} Final thought snippet: {last_event.final_thought[:200]}'
                             )
 
                     except json.JSONDecodeError as e:
@@ -368,12 +368,12 @@ async def process_review(
                             f'Failed to parse agent finish message as JSON: {e}'
                         )
                         logger.warning(
-                            f'{parse_error} Message snippet: {last_event.outputs.get("message", "<message not found>")[:200]}'
+                            f'{parse_error} Final thought snippet: {last_event.final_thought[:200]}'
                         )
                     except Exception as e:
                         parse_error = f'Error processing agent finish message: {e}'
                         logger.warning(
-                            f'{parse_error} Message snippet: {last_event.outputs.get("message", "<message not found>")[:200]}'
+                            f'{parse_error} Final thought snippet: {last_event.final_thought[:200]}'
                         )
                 else:
                     # Last event was not AgentFinishAction
