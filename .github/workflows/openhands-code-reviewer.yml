@@ -305,6 +305,7 @@ jobs:
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_API_VERSION: ${{ inputs.LLM_API_VERSION }}
           PYTHONPATH: ""
+          SANDBOX_BASE_CONTAINER_IMAGE: ${{ env.SANDBOX_BASE_CONTAINER_IMAGE }}
         run: |
           echo "Using AUTH_TOKEN: $(echo $AUTH_TOKEN | cut -c 1-4)...$(echo $AUTH_TOKEN | rev | cut -c 1-4 | rev)"
           # Run from the workspace directory where the repo is checked out
