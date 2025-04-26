@@ -236,7 +236,7 @@ async def process_review(
             config=config,
             initial_user_action=action,
             runtime=runtime,
-            fake_user_response_fn=codeact_user_response,
+            # fake_user_response_fn=codeact_user_response, # Removed for non-interactive review
         )
         if state is None:
             error_message = 'Agent controller did not return a final state.'
