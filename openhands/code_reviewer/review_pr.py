@@ -742,12 +742,14 @@ def main() -> None:
     parser.add_argument(
         '--review-level',  # Added
         type=str,
+        default='file',
         choices=['line', 'file', 'pr'],
         help='Level of detail for the review (line, file, or overall PR).',
     )
     parser.add_argument(
         '--review-depth',  # Added
         type=str,
+        default='quick',
         choices=['quick', 'medium', 'deep'],
         help='Depth/thoroughness of the review (quick, medium, or deep).',
     )

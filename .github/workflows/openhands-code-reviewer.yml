@@ -231,8 +231,7 @@ jobs:
           fi
 
           echo "MAX_ITERATIONS=${{ inputs.max_iterations || 50 }}" >> $GITHUB_ENV
-          echo "REVIEW_LEVEL=${{ inputs.review_level || 'line' }}" >> $GITHUB_ENV # Fallback corrected
-          echo "REVIEW_DEPTH=${{ inputs.review_depth || 'deep' }}" >> $GITHUB_ENV # Fallback corrected
+          # REVIEW_LEVEL and REVIEW_DEPTH are now passed directly to the script
           echo "SANDBOX_ENV_GITHUB_TOKEN=${{ env.AUTH_TOKEN }}" >> $GITHUB_ENV
           # Set SANDBOX_BASE_CONTAINER_IMAGE: Priority: inputs -> repo/org var -> empty string
           if [ -n "${{ inputs.base_container_image }}" ]; then
@@ -316,8 +315,8 @@ jobs:
             --comment-id ${{ env.COMMENT_ID }} \
             --output-file ./output/review_output_${{ env.PR_NUMBER }}.jsonl \
             --is-experimental ${{ steps.install_openhands.outputs.isExperimental }}
-            --review-level ${{ env.REVIEW_LEVEL }} \
-            --review-depth ${{ env.REVIEW_DEPTH }}
+            --review-level ${{ inputs.review_level || 'line' }} \
+            --review-depth ${{ inputs.review_depth || 'deep' }}
 
 
       - name: Dump Docker Logs
