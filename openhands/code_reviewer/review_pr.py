@@ -294,9 +294,12 @@ async def process_review(
                     logger.info(
                         f'Agent finished. Attempting to parse review from final_thought: {last_event.final_thought[:200]}...'
                     )
+                    logger.debug(
+                        f'Full final_thought content: >>>{last_event.final_thought}<<<'
+                    )  # DEBUG
                     try:
                         # Attempt to parse the final_thought directly as JSON
-                        parsed_content = json.loads(last_event.final_thought)
+                        parsed_content = json.loads(last_event.final_thought.strip())
                         if isinstance(parsed_content, list):
                             # Found a list, try to validate it
                             validated_comments = []
