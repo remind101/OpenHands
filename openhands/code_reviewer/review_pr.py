@@ -203,7 +203,18 @@ async def process_review(
     event_stream = runtime.event_stream
 
     def on_event(evt: Event) -> None:
-        logger.info(evt)
+        if isinstance(evt, CmdOutputObservation):
+            # Log command output observations with truncated content
+            MAX_LEN = 200
+            content_preview = evt.content[:MAX_LEN]
+            if len(evt.content) > MAX_LEN:
+                content_preview += '... [truncated]'
+            logger.info(
+                f'CmdOutputObservation(command={evt.command}, exit_code={evt.exit_code}, content=\'{content_preview}\')'
+            )
+        else:
+            # Log other events normally
+            logger.info(evt)
 
     if event_stream:
         event_stream.subscribe(EventStreamSubscriber.MAIN, on_event, str(uuid4()))
