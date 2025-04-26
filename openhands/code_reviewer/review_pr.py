@@ -23,7 +23,7 @@ from openhands.core.main import create_runtime, run_controller
 from openhands.core.schema import (
     AgentState,  # Correct import
 )
-from openhands.events.action import AgentFinishAction, CmdRunAction, MessageAction
+from openhands.events.action import AgentFinishAction, AgentThinkAction, CmdRunAction, MessageAction
 from openhands.events.event import Event  # Added for history typing
 from openhands.events.observation import (
     CmdOutputObservation,
