@@ -258,105 +258,134 @@ async def process_review(
                     error_message
                 )  # Log as warning, maybe comments were still generated
 
-            # Attempt to extract comments even if agent didn't finish perfectly
-            if agent_history:
-                last_event = agent_history[-1]
-                if (
-                    isinstance(last_event, MessageAction)
-                    and last_event.source == 'agent'
-                ):
-                    try:
-                        parsed_comments = json.loads(last_event.content)
-                        if isinstance(parsed_comments, list):
-                            validated_comments = []
-                            for c_dict in parsed_comments:
-                                if isinstance(c_dict, dict) and 'comment' in c_dict:
-                                    # Validate structure before creating ReviewComment
-                                    path = c_dict.get('path')
-                                    line = c_dict.get('line')
-                                    comment_text = c_dict['comment']
-                                    if path is not None and not isinstance(path, str):
-                                        logger.warning(
-                                            f'Skipping comment with invalid path type: {c_dict}'
-                                        )
-                                        continue
-                                    if line is not None and not isinstance(line, int):
-                                        # Try converting to int if it's a string representation
-                                        if isinstance(line, str) and line.isdigit():
-                                            line = int(line)
-                                        else:
-                                            logger.warning(
-                                                f'Skipping comment with invalid line type: {c_dict}'
-                                            )
-                                            continue
-                                    if not isinstance(comment_text, str):
-                                        logger.warning(
-                                            f'Skipping comment with invalid comment text type: {c_dict}'
-                                        )
-                                        continue
+            # Attempt to extract comments by searching backwards through history
+            parse_error: str | None = None
+            found_review_message = False
 
-                                    validated_comments.append(
-                                        ReviewComment(
-                                            path=path,
-                                            comment=comment_text,
-                                            line=line,
-                                            # Removed 'level' - not part of ReviewComment
+            if agent_history:
+                for event in reversed(agent_history):
+                    if isinstance(event, MessageAction) and event.source == 'agent':
+                        try:
+                            parsed_content = json.loads(event.content)
+                            if isinstance(parsed_content, list):
+                                # Found a potential review message, try to validate it
+                                validated_comments = []
+                                for c_dict in parsed_content:  # Use parsed_content here
+                                    # Existing validation logic for path, line, comment_text
+                                    if isinstance(c_dict, dict) and 'comment' in c_dict:
+                                        path = c_dict.get('path')
+                                        line = c_dict.get('line')
+                                        comment_text = c_dict['comment']
+                                        valid_comment = True  # Assume valid initially
+
+                                        if path is not None and not isinstance(
+                                            path, str
+                                        ):
+                                            logger.warning(
+                                                f'Skipping comment with invalid path type: {c_dict}'
+                                            )
+                                            valid_comment = False
+                                        if line is not None and not isinstance(
+                                            line, int
+                                        ):
+                                            if isinstance(line, str) and line.isdigit():
+                                                line = int(line)
+                                            else:
+                                                logger.warning(
+                                                    f'Skipping comment with invalid line type: {c_dict}'
+                                                )
+                                                valid_comment = False
+                                        if not isinstance(comment_text, str):
+                                            logger.warning(
+                                                f'Skipping comment with invalid comment text type: {c_dict}'
+                                            )
+                                            valid_comment = False
+
+                                        if valid_comment:
+                                            validated_comments.append(
+                                                ReviewComment(
+                                                    path=path,
+                                                    comment=comment_text,
+                                                    line=line,
+                                                )
+                                            )
+                                        # No 'else' needed, warning already logged if invalid
+                                    else:
+                                        logger.warning(
+                                            f'Skipping invalid comment structure: {c_dict}'
                                         )
+
+                                # Check if validation produced comments
+                                if validated_comments:
+                                    comments = validated_comments
+                                    found_review_message = True
+                                    logger.info(
+                                        f'Extracted {len(comments)} review comments from agent message.'
                                     )
+                                    break  # Stop searching backwards
                                 else:
+                                    # It was a list, but contained no valid comments
+                                    parse_error = 'Agent message was a list but contained no valid comment objects.'
                                     logger.warning(
-                                        f'Skipping invalid comment structure: {c_dict}'
+                                        f'{parse_error} Content snippet: {event.content[:200]}'
                                     )
-                            comments = validated_comments
-                            logger.info(f'Extracted {len(comments)} review comments.')
-                            # If we got comments AND the agent finished, it's a success
-                            if final_agent_state == AgentState.FINISHED:
-                                success = True
-                                error_message = (
-                                    None  # Clear any previous warning message
+                                    # Continue searching backwards in the outer loop
+
+                            else:
+                                # Content was valid JSON, but not a list
+                                parse_error = (
+                                    'Agent message content was not a JSON list.'
                                 )
-                        else:
-                            parse_error = (
-                                "Agent's final message content was not a JSON list."
-                            )
-                            logger.error(
-                                parse_error
-                                + f' Content snippet: {last_event.content[:200]}'
-                            )
-                            if not error_message:
-                                error_message = (
-                                    parse_error  # Keep original error if agent failed
+                                logger.warning(
+                                    f'{parse_error} Content snippet: {event.content[:200]}'
                                 )
-                    except json.JSONDecodeError as e:
-                        parse_error = (
-                            f"Failed to parse agent's final message as JSON: {e}"
+                                # Continue searching backwards
+                        except json.JSONDecodeError as e:
+                            parse_error = f'Failed to parse agent message as JSON: {e}'
+                            logger.warning(
+                                f'{parse_error} Content snippet: {event.content[:200]}'
+                            )
+                            # Continue searching backwards
+                        except Exception as e:
+                            parse_error = f'Error processing agent message: {e}'
+                            logger.warning(
+                                f'{parse_error} Content snippet: {event.content[:200]}'
+                            )
+                            # Continue searching backwards
+
+            # Determine final success/error state AFTER checking history
+            if found_review_message and final_agent_state == AgentState.FINISHED:
+                success = True
+                error_message = (
+                    None  # Clear any previous agent loop error if we got the review
+                )
+                logger.info('Review successfully extracted and agent finished.')
+            elif final_agent_state == AgentState.ERROR:
+                # Keep the original error_message from the agent loop
+                success = False
+                logger.error(f'Agent finished in ERROR state: {error_message}')
+            elif not found_review_message:
+                success = False
+                if not error_message:  # Only overwrite if no agent error occurred
+                    if parse_error:
+                        error_message = f'Could not find valid review comments in agent history. Last parse error: {parse_error}'
+                    elif not agent_history:
+                        error_message = 'Agent history is empty.'
+                    else:
+                        error_message = (
+                            'Could not find valid review comments in agent history.'
                         )
-                        logger.error(
-                            parse_error
-                            + f' Content snippet: {last_event.content[:200]}'
-                        )
-                        if not error_message:
-                            error_message = parse_error
-                    except Exception as e:
-                        parse_error = f"Error processing agent's final message: {e}"
-                        logger.error(
-                            parse_error
-                            + f' Content snippet: {last_event.content[:200]}'
-                        )
-                        if not error_message:
-                            error_message = parse_error
-                elif (
-                    not error_message
-                ):  # Only set this error if no agent error occurred
-                    error_message = f"Agent's final action was not a MessageAction from agent. Last event: {type(last_event).__name__}"
-                    logger.error(error_message)
-            elif not error_message:  # Only set this error if no agent error occurred
-                error_message = 'State history is empty.'
+                logger.error(error_message)
+            else:  # Found message, but agent didn't finish correctly
+                success = False
+                if not error_message:
+                    error_message = f'Found review comments, but agent did not finish correctly. Final state: {final_agent_state}'
                 logger.error(error_message)
 
             # Final check: if we didn't succeed, ensure there's an error message
+            # This check might be redundant now but kept for safety
             if not success and not error_message:
-                error_message = 'Review generation failed for an unknown reason.'
+                error_message = 'Review generation failed for an unknown reason after checking history.'
                 logger.error(error_message)
 
     except Exception:
@@ -444,8 +473,12 @@ async def run_review_task(
 
     # Helper function for JSON serialization
     def json_default(obj):
+        if isinstance(obj, Issue):
+            # Explicitly handle Issue dataclass first
+            return dataclasses.asdict(obj)
         if dataclasses.is_dataclass(obj):
-            return dataclasses.asdict(obj)  # Convert any dataclass to dict
+            # Handle other dataclasses
+            return dataclasses.asdict(obj)
         if isinstance(obj, SecretStr):
             return obj.get_secret_value()  # Convert SecretStr to str
         raise TypeError(
