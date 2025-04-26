@@ -14,6 +14,15 @@ First, ensure the latest changes are fetched using `git fetch origin`. Then, ana
 - Review Depth: `{{ review_depth }}` (Specifies the thoroughness: 'quick' for obvious issues, 'medium' for standard checks, 'deep' for in-depth analysis including potential bugs and security concerns)
 **It is crucial that you strictly adhere to the specified Review Level and Review Depth.**
 
+When interpreting the output of `git diff`:
+- Identify the file path from the line starting with `+++ b/`. This is the path in the head commit.
+- Pay close attention to the hunk headers, which look like `@@ -old_start,old_count +new_start,new_count @@`.
+- The line numbers you provide in your review comments MUST correspond to the line numbers in the *new* file (the head commit version).
+- To calculate the correct line number for a line starting with `+` (an added line) or ` ` (a context line within the change hunk), start with `new_start` from the hunk header and count the lines (including context lines and added lines) within that hunk until you reach the line you want to comment on.
+- Do NOT use line numbers relative to the start of the hunk itself. Use the absolute line number within the file specified by `+++ b/`.
+- Comments should only be placed on lines that exist in the head commit (lines starting with `+` or ` ` within the diff hunk). Do not comment on removed lines (starting with `-`).
+
+
 {% if repo_instruction %}
 # Repository Guidelines/Instructions
 Please also consider the following repository-specific guidelines during your review:
@@ -28,7 +37,7 @@ Your final action **MUST** be the `finish` tool call.
 Each comment object in the JSON list should have the following structure:
 - `path`: (string) The full path to the file being commented on, relative to the repository root (e.g., "openhands/core/config.py").
 - `comment`: (string) The text of your review comment.
-- `line`: (integer, optional) The line number in the file (head commit) the comment refers to. Required if `review_level` is 'line'.
+    - `line`: (integer, optional) The line number in the *head commit version* of the file (as indicated by the `+++ b/` path and calculated from the hunk header `+new_start`) the comment refers to. Required if `review_level` is 'line'.
 
 Example structure of the JSON list (this exact string goes into the `message` argument of the `finish` tool call):
 `[{"path": "src/utils/parser.py", "line": 42, "comment": "..."}, {"path": "src/main.py", "comment": "..."}]`
