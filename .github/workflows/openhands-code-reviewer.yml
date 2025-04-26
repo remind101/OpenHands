@@ -318,6 +318,19 @@ jobs:
             --review-depth ${{ env.REVIEW_DEPTH }} \
             --is-experimental ${{ steps.install_openhands.outputs.isExperimental }}
 
+
+      - name: Dump Docker Logs
+        if: always() # Run even if the previous step failed
+        run: |
+          echo "Attempting to dump logs from runtime container..."
+          CONTAINER_ID=$(docker ps -a --filter "name=openhands-runtime-" --format "{{.ID}}" | head -n 1)
+          if [ -n "$CONTAINER_ID" ]; then
+            echo "Found container ID: $CONTAINER_ID"
+            docker logs "$CONTAINER_ID"
+          else
+            echo "No container found matching 'openhands-runtime-*'."
+          fi
+
       - name: Check review result
         id: check_result
         run: |
