@@ -219,6 +219,7 @@ jobs:
       - name: Set environment variables
         env:
           REVIEW_BODY: ${{ github.event.review.body || '' }}
+          SANDBOX_BASE_CONTAINER_IMAGE: ${{ env.SANDBOX_BASE_CONTAINER_IMAGE }}
         run: |
           # All triggers for this workflow relate to a Pull Request
           echo "PR_NUMBER=${{ github.event.pull_request.number || github.event.issue.number }}" >> $GITHUB_ENV
@@ -233,7 +234,18 @@ jobs:
           echo "REVIEW_LEVEL=${{ inputs.review_level || 'pr' }}" >> $GITHUB_ENV
           echo "REVIEW_DEPTH=${{ inputs.review_depth || 'quick' }}" >> $GITHUB_ENV
           echo "SANDBOX_ENV_GITHUB_TOKEN=${{ env.AUTH_TOKEN }}" >> $GITHUB_ENV
-          echo "SANDBOX_BASE_CONTAINER_IMAGE=${{ inputs.base_container_image || '' }}" >> $GITHUB_ENV
+          # Set SANDBOX_BASE_CONTAINER_IMAGE: Priority: inputs -> env var -> empty string
+          if [ -n "${{ inputs.base_container_image }}" ]; then
+            echo "Using base_container_image from input: ${{ inputs.base_container_image }}"
+            FINAL_BASE_IMAGE="${{ inputs.base_container_image }}"
+          elif [ -n "$SANDBOX_BASE_CONTAINER_IMAGE" ]; then
+            echo "Using SANDBOX_BASE_CONTAINER_IMAGE from environment."
+            FINAL_BASE_IMAGE="$SANDBOX_BASE_CONTAINER_IMAGE"
+          else
+            echo "No base_container_image input or environment variable found. Defaulting to empty."
+            FINAL_BASE_IMAGE=""
+          fi
+          echo "SANDBOX_BASE_CONTAINER_IMAGE=$FINAL_BASE_IMAGE" >> $GITHUB_ENV
 
       - name: Comment on PR with start message
         uses: actions/github-script@v7
