@@ -14,12 +14,12 @@ on:
       review_level:
         required: false
         type: string
-        default: "pr"
+        default: "line" # Default changed to line
         description: "Level of review (e.g., 'line', 'file', 'pr')"
       review_depth:
         required: false
         type: string
-        default: "quick"
+        default: "deep" # Default changed to deep
         description: "Depth of review (e.g., 'quick', 'deep')"
       LLM_MODEL:
         required: false
