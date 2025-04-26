@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import aiofiles  # type: ignore[import-untyped]
 from jinja2 import Template
-from pydantic import SecretStr
+from pydantic import BaseModel, SecretStr
 
 import openhands
 
@@ -105,7 +105,7 @@ def initialize_runtime(
 
 
 async def process_review(
-    issue: Issue,
+    pr_data: dict[str, Any],  # Changed from issue: Issue
     platform: ProviderType,
     # base_commit: str, # Removed, not used here
     max_iterations: int,
@@ -123,15 +123,15 @@ async def process_review(
     # Setup the logger properly, so you can run multi-processing to parallelize processing
     if reset_logger:
         log_dir = os.path.join(output_dir, 'infer_logs')
-        reset_logger_for_multiprocessing(logger, str(issue.number), log_dir)
+        reset_logger_for_multiprocessing(logger, str(pr_data['number']), log_dir)
     else:
-        logger.info(f'Starting review process for PR {issue.number}.')
+        logger.info(f"Starting review process for PR {pr_data['number']}.")
 
     # Define workspace relative to the current directory (GITHUB_WORKSPACE)
     workspace_base = os.path.join(
         '.',  # Current directory
         'workspace',
-        f'pr_{issue.number}',
+        f"pr_{pr_data['number']}",
     )
     # Get the absolute path of the workspace base
     workspace_base = os.path.abspath(workspace_base)
@@ -173,7 +173,7 @@ async def process_review(
     # Prepare the initial prompt/instruction for code review
     template = Template(prompt_template)
     prompt_vars = {
-        'issue': issue,
+        'pr_data': pr_data,  # Pass the dictionary
         'repo_instruction': repo_instruction,
         'review_level': review_level,
         'review_depth': review_depth,
@@ -396,7 +396,7 @@ async def process_review(
 
     # Construct the final output
     output = ReviewerOutput(
-        pr_info=issue,
+        pr_info=pr_data,
         review_level=review_level,
         review_depth=review_depth,
         instruction=instruction,
@@ -452,7 +452,7 @@ async def run_review_task(
     # Set default base_domain if None
     if base_domain is None:
         base_domain = 'github.com' if platform == ProviderType.GITHUB else 'gitlab.com'
-    issue_handler = handler_class(  # type: ignore[call-arg]
+    issue_handler: GithubPRHandler = handler_class(  # type: ignore[call-arg, assignment]
         owner=owner,
         repo=repo,
         token=token,
@@ -468,9 +468,8 @@ async def run_review_task(
 
     # Helper function for JSON serialization
     def json_default(obj):
-        if isinstance(obj, Issue):
-            # Explicitly handle Issue dataclass first
-            return dataclasses.asdict(obj)
+        if isinstance(obj, BaseModel):  # Handle Pydantic models (including Issue)
+            return obj.model_dump()
         if dataclasses.is_dataclass(obj):
             # Handle other dataclasses
             return dataclasses.asdict(obj)
@@ -488,14 +487,13 @@ async def run_review_task(
             return f'<unserializable object: {type(obj).__name__}>'
 
     try:
-        pr_info_list = issue_handler.get_converted_issues([issue_number])
-        if not pr_info_list:
-            raise ValueError(f'PR #{issue_number} not found or accessible.')
-
-        pr_info = pr_info_list[0]
-        logger.info(f'Fetched PR info for #{pr_info.number}')
-        logger.info(f'Type of pr_info: {type(pr_info)}')
-        logger.info(f'Content of pr_info: {pr_info}')
+        # Fetch full PR details as a dictionary
+        pr_data = await issue_handler.get_pr_details(issue_number)
+        logger.info(f'Fetched PR data for #{pr_data["number"]}')
+        logger.info(f'Type of pr_data: {type(pr_data)}')
+        logger.info(
+            f'Content of pr_data (keys): {list(pr_data.keys())}'
+        )  # Log keys for brevity
     except Exception as e:
         logger.error(f'Failed to fetch PR info: {e}')
         # Print error output similar to main's exception handling
@@ -521,14 +519,14 @@ async def run_review_task(
         assert hasattr(
             issue_handler, 'checkout_pr'
         ), f'{type(issue_handler).__name__} lacks checkout_pr'
-        await issue_handler.checkout_pr(pr_info.number, repo_dir)
-        logger.info(f'Checked out PR branch for #{pr_info.number} into {repo_dir}')
+        await issue_handler.checkout_pr(pr_data['number'], repo_dir)
+        logger.info(f"Checked out PR branch for #{pr_data['number']} into {repo_dir}")
         # base_commit = await issue_handler.get_head_commit(repo_dir) # Not needed by process_review
         # logger.info(f'Base commit set to: {base_commit}')
     except Exception as e:
         logger.error(f'Failed to checkout PR branch: {e}')
         error_output = ReviewerOutput(
-            pr_info=pr_info,
+            pr_info=pr_data,
             review_level=review_level,
             review_depth=review_depth,
             instruction='',
@@ -567,7 +565,7 @@ async def run_review_task(
     except Exception as e:
         logger.error(f'Failed to read prompt template file {prompt_file}: {e}')
         error_output = ReviewerOutput(
-            pr_info=pr_info,
+            pr_info=pr_data,
             review_level=review_level,
             review_depth=review_depth,
             instruction='',
@@ -580,10 +578,12 @@ async def run_review_task(
 
     # 9. Process the PR using the core logic function
     try:
-        logger.info(f'Passing to process_review - Type of pr_info: {type(pr_info)}')
-        logger.info(f'Passing to process_review - Content of pr_info: {pr_info}')
+        logger.info(f'Passing to process_review - Type of pr_data: {type(pr_data)}')
+        logger.info(
+            f'Passing to process_review - Content of pr_data (keys): {list(pr_data.keys())}'
+        )
         output = await process_review(
-            issue=pr_info,
+            pr_data=pr_data,  # Pass the dictionary
             platform=platform,
             max_iterations=max_iterations,
             llm_config=llm_config,
@@ -605,7 +605,7 @@ async def run_review_task(
         logger.error(f'An unexpected error occurred during review processing: {e}')
         # Create a generic error output if processing fails unexpectedly
         error_output = ReviewerOutput(
-            pr_info=pr_info,
+            pr_info=pr_data,
             review_level=review_level,
             review_depth=review_depth,
             instruction='',  # May not have been generated

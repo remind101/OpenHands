@@ -418,6 +418,20 @@ class GithubPRHandler(GithubIssueHandler):
 
         logger.info(f'Successfully checked out PR #{pr_number} at commit {head_sha}')
 
+    async def get_pr_details(self, pr_number: int) -> dict[str, Any]:
+        """Fetch full details for a specific Pull Request using the REST API."""
+        pr_api_url = f'{self.base_url}/pulls/{pr_number}'
+        logger.info(f'Fetching PR details from: {pr_api_url}')
+        async with httpx.AsyncClient() as client:
+            response = await client.get(pr_api_url, headers=self.headers)
+            response.raise_for_status()  # Raise an exception for bad status codes
+            pr_data = response.json()
+            logger.info(f'Successfully fetched details for PR #{pr_number}')
+            # Add owner and repo explicitly, as they might not be in the direct response
+            pr_data['owner'] = self.owner
+            pr_data['repo'] = self.repo
+            return pr_data
+
     def download_pr_metadata(
         self, pull_number: int, comment_id: int | None = None
     ) -> tuple[list[str], list[int], list[str], list[ReviewThread], list[str]]:

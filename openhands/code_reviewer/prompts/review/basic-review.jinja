@@ -2,14 +2,14 @@ You are an AI code reviewer. Your task is to review the following pull request f
 An environment with the repository checked out at the PR's head commit is available for you to analyze the code.
 
 # Pull Request Details
-Title: {{ issue.title }}
-{% if issue.body %}
+Title: {{ pr_data.title }}
+{% if pr_data.body %}
 Body:
-{{ issue.body }}
+{{ pr_data.body }}
 {% endif %}
 
 # Review Task
-Analyze the code changes between the base branch (`{{ issue['base']['ref'] }}`) and the head branch (`{{ issue['head']['ref'] }}`) using git commands (e.g., `git diff origin/{{ issue['base']['ref'] }}...origin/{{ issue['head']['ref'] }}`). Base your review on the following parameters:
+Analyze the code changes between the base branch (`{{ pr_data['base']['ref'] }}`) and the head branch (`{{ pr_data['head']['ref'] }}`) using git commands (e.g., `git diff origin/{{ pr_data['base']['ref'] }}...origin/{{ pr_data['head']['ref'] }}`). Base your review on the following parameters:
 - Review Level: `{{ review_level }}` (Specifies the granularity: 'line' for specific lines, 'file' for overall file changes, 'pr' for a high-level summary)
 - Review Depth: `{{ review_depth }}` (Specifies the thoroughness: 'quick' for obvious issues, 'medium' for standard checks, 'deep' for in-depth analysis including potential bugs and security concerns)
 
@@ -45,7 +45,7 @@ Example of the JSON list structure (to be placed inside the `finish` action's `m
 ]
 
 IMPORTANT:
-- Focus your review on the changes between the base branch (`{{ issue['base']['ref'] }}`) and the head branch (`{{ issue['head']['ref'] }}`).
+- Focus your review on the changes between the base branch (`{{ pr_data['base']['ref'] }}`) and the head branch (`{{ pr_data['head']['ref'] }}`).
 - Adhere strictly to the specified JSON output format for your final response.
 - Your response MUST contain ONLY the raw JSON list, without any surrounding text, explanations, or markdown formatting (like ```json).
 - Do NOT attempt to modify any files. Your role is only to review.

@@ -1,7 +1,5 @@
 import dataclasses
-from typing import Any, List, Optional
-
-from openhands.resolver.interfaces.issue import Issue
+from typing import Any, Dict, List, Optional
 
 
 @dataclasses.dataclass
@@ -13,7 +11,9 @@ class ReviewComment:
 
 @dataclasses.dataclass
 class ReviewerOutput:
-    pr_info: Issue  # Using Issue dataclass to store PR info (number, title, owner, repo, etc.)
+    pr_info: Dict[
+        str, Any
+    ]  # Using dict to store PR info (number, title, owner, repo, etc.)
     review_level: str  # e.g., 'line', 'file', 'pr'
     review_depth: str  # e.g., 'quick', 'deep'
     instruction: str  # The instruction given to the agent
