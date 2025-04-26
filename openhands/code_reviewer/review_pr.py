@@ -100,6 +100,7 @@ async def process_pr_for_review(
     runtime_container_image: str | None,
     prompt_template: str,
     issue_handler: IssueHandlerInterface,  # Use interface type hint
+    repo_dir: str,
     repo_instruction: str | None = None,
     reset_logger: bool = False,
     review_level: str = 'file',
@@ -112,32 +113,19 @@ async def process_pr_for_review(
     else:
         logger.info(f'Starting review process for PR {issue.number}.')
 
+    # Define workspace relative to the current directory (GITHUB_WORKSPACE)
     workspace_base = os.path.join(
-        output_dir,
+        '.',  # Current directory
         'workspace',
-        f'pr_{issue.number}',  # Simplified dir name
+        f'pr_{issue.number}',
     )
-
     # Get the absolute path of the workspace base
     workspace_base = os.path.abspath(workspace_base)
     # write the repo to the workspace (assuming repo is already cloned to output_dir/repo)
     if os.path.exists(workspace_base):
         shutil.rmtree(workspace_base)
-    # Ensure the source repo directory exists before copying
-    source_repo_dir = os.path.join(output_dir, 'repo')
-    if not os.path.exists(source_repo_dir):
-        logger.error(f'Source repository directory not found: {source_repo_dir}')
-        # Return an error output immediately
-        return ReviewerOutput(
-            pr_info=issue,
-            review_level=review_level,
-            review_depth=review_depth,
-            instruction='',
-            history=[],
-            success=False,
-            error='Source repository not found for workspace setup.',
-        )
-    shutil.copytree(source_repo_dir, workspace_base)
+    # Copy the checked-out repo (from repo_dir) to the workspace
+    shutil.copytree(repo_dir, workspace_base)
 
     sandbox_config = SandboxConfig(
         base_container_image=base_container_image,
@@ -521,10 +509,10 @@ async def review_pr_entrypoint(
 
         # Assume repository is already cloned and checked out to the correct state
         # by the CI/CD workflow in the `output_dir/repo` directory.
-        repo_dir = os.path.join(output_dir, 'repo')
-        if not os.path.exists(os.path.join(repo_dir, '.git')):
+        repo_dir = os.environ.get('GITHUB_WORKSPACE')
+        if not repo_dir or not os.path.exists(os.path.join(repo_dir, '.git')):
             raise FileNotFoundError(
-                f'Repository not found or not a git repository in {repo_dir}. Please ensure the workflow clones the repo.'
+                f'Repository not found or not a git repository in GITHUB_WORKSPACE ({repo_dir}). Please ensure the workflow checks out the repo.'
             )
 
         # Load repo-specific instructions if not provided via args
@@ -565,6 +553,7 @@ async def review_pr_entrypoint(
             max_iterations=max_iterations,
             llm_config=llm_config,
             output_dir=output_dir,
+            repo_dir=repo_dir,
             base_container_image=base_container_image,
             runtime_container_image=runtime_container_image,
             prompt_template=prompt_template,

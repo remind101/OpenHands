@@ -283,9 +283,6 @@ jobs:
               await exec.exec("pip install -r /tmp/requirements.txt");
             }
 
-      - name: Clean up previous repo clone
-        run: rm -rf /tmp/repo
-
       - name: Attempt to review PR
         env:
           GITHUB_TOKEN: ${{ env.AUTH_TOKEN }}
@@ -306,13 +303,12 @@ jobs:
             --comment-id ${{ env.COMMENT_ID }} \
             --review-level ${{ env.REVIEW_LEVEL }} \
             --review-depth ${{ env.REVIEW_DEPTH }} \
-            --is-experimental ${{ steps.install_openhands.outputs.isExperimental }} \
-            --output-dir /tmp
+            --is-experimental ${{ steps.install_openhands.outputs.isExperimental }}
 
       - name: Check review result
         id: check_result
         run: |
-          if cd /tmp && grep -q '"success":true' output/review_output_${{ env.PR_NUMBER }}.jsonl; then
+          if grep -q '"success":true' ./output/review_output_${{ env.PR_NUMBER }}.jsonl; then
             echo "REVIEW_SUCCESS=true" >> $GITHUB_OUTPUT
           else
             echo "REVIEW_SUCCESS=false" >> $GITHUB_OUTPUT
@@ -323,7 +319,7 @@ jobs:
         if: always() # Upload even if the previous steps fail
         with:
           name: reviewer-output
-          path: /tmp/output/review_output_${{ env.PR_NUMBER }}.jsonl
+          path: ./output/review_output_${{ env.PR_NUMBER }}.jsonl
           retention-days: 30 # Keep the artifact for 30 days
 
       - name: Post Review Comments
@@ -338,8 +334,8 @@ jobs:
           PYTHONPATH: ""
           REVIEW_SUCCESS: ${{ steps.check_result.outputs.REVIEW_SUCCESS }}
         run: |
-          cd /tmp && python -m openhands.code_reviewer.post_review_comments \
-            --output-file /tmp/output/review_output_${{ env.PR_NUMBER }}.jsonl \
+          python -m openhands.code_reviewer.post_review_comments \
+            --output-file ./output/review_output_${{ env.PR_NUMBER }}.jsonl \
             --pr-number ${{ env.PR_NUMBER }} \
             --review-success ${{ env.REVIEW_SUCCESS }}
 
