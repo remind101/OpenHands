@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 from typing import Any, Dict, List
+from uuid import uuid4
 
 import aiofiles  # type: ignore[import-untyped]
 from jinja2 import Template
@@ -187,7 +188,6 @@ async def process_review(
     # Initialize variables needed for results
     runtime = None  # Define runtime here to ensure it's available in finally
     event_stream = None
-    original_main_subscribers = {}
     state: State | None = None
     comments: List[ReviewComment] = []
     success = False
@@ -203,19 +203,15 @@ async def process_review(
     logger.info('Runtime connected.')
     event_stream = runtime.event_stream
 
-    # 2. Backup and remove MAIN subscribers (temporary fix for EOFError)
+    def on_event(evt: Event) -> None:
+        logger.info(evt)
+
     if event_stream:
-        original_main_subscribers = event_stream._subscribers.get(
-            EventStreamSubscriber.MAIN, {}
-        ).copy()
-        if original_main_subscribers:
-            logger.info(
-                f'Temporarily removing {len(original_main_subscribers)} MAIN subscribers.'
-            )
-            for callback_id in list(original_main_subscribers.keys()):
-                event_stream.unsubscribe(EventStreamSubscriber.MAIN, callback_id)
+        event_stream.subscribe(EventStreamSubscriber.MAIN, on_event, str(uuid4()))
     else:
-        logger.warning('Runtime does not have an event_stream attribute.')
+        logger.warning(
+            'Runtime does not have an event_stream attribute, cannot subscribe.'
+        )
 
     # 3. Initialize runtime (e.g., git config)
     logger.info('Initializing runtime...')
@@ -363,23 +359,13 @@ async def process_review(
                 error_message = 'Review generation failed for an unknown reason.'
                 logger.error(error_message)
 
-    except Exception as e:
+    except Exception:
         # Catch any other unexpected errors during processing
         logger.exception('An unexpected exception occurred during agent execution:')
         success = False
-        comments = []
-        error_message = f'Unexpected error during agent execution: {str(e)}'
         final_agent_state = AgentState.ERROR  # Assume error state
 
     finally:
-        # 6. Restore MAIN subscribers
-        if event_stream and original_main_subscribers:
-            logger.info(f'Restoring {len(original_main_subscribers)} MAIN subscribers.')
-            for callback_id, callback_fn in original_main_subscribers.items():
-                event_stream.subscribe(
-                    EventStreamSubscriber.MAIN, callback_fn, callback_id
-                )
-
         # Ensure runtime is closed if it was created
         if runtime:
             await runtime.close()  # type: ignore[func-returns-value] # runtime.close() returns None
