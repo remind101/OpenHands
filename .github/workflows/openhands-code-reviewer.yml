@@ -233,7 +233,7 @@ jobs:
           echo "REVIEW_LEVEL=${{ inputs.review_level || 'pr' }}" >> $GITHUB_ENV
           echo "REVIEW_DEPTH=${{ inputs.review_depth || 'quick' }}" >> $GITHUB_ENV
           echo "SANDBOX_ENV_GITHUB_TOKEN=${{ env.AUTH_TOKEN }}" >> $GITHUB_ENV
-          echo "SANDBOX_BASE_CONTAINER_IMAGE=${{ inputs.base_container_image }}" >> $GITHUB_ENV
+          echo "SANDBOX_BASE_CONTAINER_IMAGE=${{ inputs.base_container_image || '' }}" >> $GITHUB_ENV
 
       - name: Comment on PR with start message
         uses: actions/github-script@v7
