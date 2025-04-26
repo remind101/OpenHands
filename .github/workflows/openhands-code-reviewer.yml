@@ -216,6 +216,12 @@ jobs:
             echo "Warning: PAT_USERNAME is not set, will use openhands-agent"
           fi
 
+      - name: Debug Variable Values
+        run: |
+          echo "Input base_container_image: ${{ inputs.base_container_image }}"
+          echo "Repo/Org Variable SANDBOX_BASE_CONTAINER_IMAGE: ${{ vars.SANDBOX_BASE_CONTAINER_IMAGE }}"
+          echo "Workflow Env SANDBOX_BASE_CONTAINER_IMAGE: ${{ env.SANDBOX_BASE_CONTAINER_IMAGE }}"
+
       - name: Set environment variables and outputs
         id: set_vars # Add ID here
         env:
