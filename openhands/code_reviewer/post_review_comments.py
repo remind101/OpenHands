@@ -2,18 +2,11 @@ import argparse
 import asyncio
 import json
 import os
-from typing import cast
-
-from pydantic import SecretStr
 
 from openhands.code_reviewer.reviewer_output import ReviewerOutput
 from openhands.core.logger import openhands_logger as logger
 from openhands.integrations.service_types import ProviderType
 from openhands.resolver.interfaces.github import GithubPRHandler
-from openhands.resolver.interfaces.gitlab import GitlabPRHandler
-from openhands.resolver.interfaces.issue import (
-    IssueHandlerInterface,  # Renamed from IssueHandler
-)
 
 
 def get_pr_handler(
@@ -21,25 +14,18 @@ def get_pr_handler(
     repo: str,
     token: str | None,
     platform: ProviderType,
-    base_domain: str | None = None,
-) -> IssueHandlerInterface:
-    """Get the appropriate PR handler based on the platform."""
-    if platform == ProviderType.GITHUB:
-        gh_token = token or os.environ.get('GITHUB_TOKEN')
-        if not gh_token:
-            raise ValueError('GitHub token is required for GitHub PR handler')
-
-        return GithubPRHandler(token=gh_token, owner=owner, repo=repo)
-    elif platform == ProviderType.GITLAB:
-        gl_token = token or os.environ.get('GITLAB_TOKEN')
-        if not gl_token:
-            raise ValueError('GitLab token is required for GitLab PR handler')
-
-        return GitlabPRHandler(
-            token=SecretStr(gl_token), owner=owner, repo=repo, base_domain=base_domain
+) -> GithubPRHandler:  # Return specific type now
+    """Get the GitHub PR handler. Raises error for other platforms."""
+    if platform != ProviderType.GITHUB:
+        raise ValueError(
+            f'Unsupported platform for code review comments: {platform}. Only GitHub is supported.'
         )
-    else:
-        raise ValueError(f'Unsupported platform: {platform}')
+
+    gh_token = token or os.environ.get('GITHUB_TOKEN')
+    if not gh_token:
+        raise ValueError('GitHub token is required for GitHub PR handler')
+
+    return GithubPRHandler(token=gh_token, owner=owner, repo=repo)
 
 
 def post_comments(
@@ -47,7 +33,6 @@ def post_comments(
     token: str | None,
     selected_repo: str,
     pr_number: int,
-    base_domain: str | None = None,
 ):
     from openhands.code_reviewer.reviewer_output import ReviewComment
 
@@ -96,44 +81,37 @@ def post_comments(
         logger.error(f'Invalid repository format: {selected_repo}. Use owner/repo.')
         return
 
-    # Determine platform (assuming GitHub for now if not specified, needs improvement)
-    # TODO: Make platform detection more robust or add an argument
+    # Assume GitHub platform
     platform = ProviderType.GITHUB
-    if base_domain and 'gitlab' in base_domain.lower():  # Check lower case
-        platform = ProviderType.GITLAB
-
     try:
-        pr_handler = get_pr_handler(owner, repo, token, platform, base_domain)
-        pr_handler = cast(
-            GithubPRHandler | GitlabPRHandler, pr_handler
-        )  # Cast for type hinting
+        pr_handler = get_pr_handler(owner, repo, token, platform)
+    except ValueError as e:  # Catch specific error from get_pr_handler
+        logger.error(f'Configuration error getting PR handler: {e}')
+        return
 
-        logger.info(
-            f'Posting {len(review_output.comments)} comments to PR #{pr_number} on {platform.value}...'
-        )
+    logger.info(
+        f'Posting {len(review_output.comments)} comments to PR #{pr_number} on {platform.value}...'
+    )
 
-        # Post comments using the handler
-        # The handler interface might need adjustment if post_review doesn't exist
-        # or takes different arguments. Assuming a method like post_review(pr_number, comments)
-        # Check if the handler has the post_review method
-        if not hasattr(pr_handler, 'post_review'):
-            logger.error(
-                f'{type(pr_handler).__name__} does not have a post_review method.'
-            )
-            return
-        comments_to_post = review_output.comments
+    # Post comments using the handler
+    # The handler interface might need adjustment if post_review doesn't exist
+    # or takes different arguments. Assuming a method like post_review(pr_number, comments)
+    # Check if the handler has the post_review method
+    if not hasattr(pr_handler, 'post_review'):
+        logger.error(f'{type(pr_handler).__name__} does not have a post_review method.')
+        return
+    comments_to_post = review_output.comments
+    try:
         asyncio.run(
             pr_handler.post_review(pr_number=pr_number, comments=comments_to_post)
         )
-
-        logger.info(f'Successfully posted comments to PR #{pr_number}.')
-
-    except ValueError as e:
-        logger.error(f'Configuration error: {e}')
-    except Exception:
+    except Exception:  # Catch errors during comment posting
         logger.exception(
             f'Failed to post comments to PR #{pr_number}'
         )  # Use logger.exception for stack trace
+        return  # Exit if posting fails
+
+    logger.info(f'Successfully posted comments to PR #{pr_number}.')
 
 
 def main():
@@ -162,12 +140,6 @@ def main():
         default=None,
         help='Platform token (GitHub PAT or GitLab access token). Reads from env vars (GITHUB_TOKEN/GITLAB_TOKEN) if not provided.',
     )
-    parser.add_argument(
-        '--base-domain',
-        type=str,
-        default=None,
-        help='Base domain for the git server (e.g., gitlab.mycompany.com). Helps determine platform.',
-    )
 
     args = parser.parse_args()
 
@@ -176,7 +148,6 @@ def main():
         token=args.token,
         selected_repo=args.selected_repo,
         pr_number=args.pr_number,
-        base_domain=args.base_domain,
     )
 
 
