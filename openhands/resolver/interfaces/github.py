@@ -28,7 +28,7 @@ class GithubIssueHandler(IssueHandlerInterface):
         self,
         owner: str,
         repo: str,
-        token: SecretStr | None,
+        token: str,
         username: str | None = None,
         base_domain: str = 'github.com',
     ):
@@ -46,7 +46,7 @@ class GithubIssueHandler(IssueHandlerInterface):
         self.token = token
         if token:
             logger.info(
-                f'GithubPRHandler initialized with token: {token.get_secret_value()[:4]}...{token.get_secret_value()[-4:]}'
+                f'GithubPRHandler initialized with token: {token[:4]}...{token[-4:]}'
             )
         else:
             logger.warning('GithubPRHandler initialized without a token.')
