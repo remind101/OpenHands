@@ -598,7 +598,7 @@ async def run_review_task(
             review_depth=review_depth,
         )
         # Print the final output
-        print(json.dumps(dataclasses.asdict(output), indent=2))
+        print(json.dumps(dataclasses.asdict(output), indent=2, default=json_default))
         logger.info('Review task completed successfully.')
 
     except Exception as e:
