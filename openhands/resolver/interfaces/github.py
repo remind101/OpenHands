@@ -62,7 +62,7 @@ class GithubIssueHandler(IssueHandlerInterface):
 
     def get_headers(self) -> dict[str, str]:
         return {
-            'Authorization': f'token {self.token}',  # Use self.token directly
+            'Authorization': f'token {self.token.get_secret_value()}',
             'Accept': 'application/vnd.github.v3+json',
             'X-GitHub-Api-Version': '2022-11-28',
         }
