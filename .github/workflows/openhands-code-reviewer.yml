@@ -349,6 +349,13 @@ jobs:
           path: ./output/review_output_${{ env.PR_NUMBER }}.jsonl
           retention-days: 30 # Keep the artifact for 30 days
 
+
+      - name: Debug Token for Posting
+        env:
+          GITHUB_TOKEN: ${{ env.AUTH_TOKEN }}
+        run: |
+          echo "Token for post_review_comments step: $(echo $GITHUB_TOKEN | cut -c 1-4)...$(echo $GITHUB_TOKEN | rev | cut -c 1-4 | rev)"
+
       - name: Post Review Comments
         if: always() # Post comments even if the review script failed (to report failure)
         env:

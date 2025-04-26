@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import shutil
 from typing import Any
@@ -10,13 +11,14 @@ from pydantic import SecretStr
 from openhands.code_reviewer.reviewer_output import (
     ReviewComment,  # Added for type hinting in post_review
 )
-from openhands.core.logger import openhands_logger as logger
 from openhands.resolver.interfaces.issue import (
     Issue,
     IssueHandlerInterface,
     ReviewThread,
 )
 from openhands.resolver.utils import extract_issue_references
+
+logger = logging.getLogger(__name__)
 
 
 class GithubIssueHandler(IssueHandlerInterface):
@@ -42,6 +44,12 @@ class GithubIssueHandler(IssueHandlerInterface):
         self.owner = owner
         self.repo = repo
         self.token = token
+        if token:
+            logger.info(
+                f'GithubPRHandler initialized with token: {token[:4]}...{token[-4:]}'
+            )
+        else:
+            logger.warning('GithubPRHandler initialized without a token.')
         self.username = username
         self.base_domain = base_domain
         self.base_url = self.get_base_url()
