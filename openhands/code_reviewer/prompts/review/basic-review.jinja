@@ -38,10 +38,12 @@ Your final action **MUST** be the `finish` tool call.
 Each comment object in the JSON list should have the following structure:
 - `path`: (string) The full path to the file being commented on, relative to the repository root (e.g., "openhands/core/config.py").
 - `comment`: (string) The text of your review comment.
-    - `line`: (integer, optional) The line number in the *head commit version* of the file (as indicated by the `+++ b/` path and calculated from the hunk header `+new_start`) the comment refers to. Required if `review_level` is 'line'.
+- `line`: (integer, optional) The line number in the *head commit version* of the file (as indicated by the `+++ b/` path and calculated from the hunk header `+new_start`) the comment refers to. Required if `review_level` is 'line'.
+- `code_snippet`: (string, optional) The exact line(s) of code from the head commit version that the comment refers to. Include 1-3 lines for context if helpful. Required if `review_level` is 'line'.
+- `line_number_justification`: (string, optional) A brief explanation of how the `line` number was determined, referencing the diff hunk and the verification step (e.g., "Line 42 in `+++ b/src/utils/parser.py`, verified with `grep -n 'exact code line'` in `/workspace/src/utils/parser.py`"). Required if `review_level` is 'line'.
 
 Example structure of the JSON list (this exact string goes into the `message` argument of the `finish` tool call):
-`[{"path": "src/utils/parser.py", "line": 42, "comment": "..."}, {"path": "src/main.py", "comment": "..."}]`
+`[{"path": "src/utils/parser.py", "line": 42, "code_snippet": "... code line(s) ...", "line_number_justification": "...", "comment": "..."}, {"path": "src/main.py", "comment": "..."}]`
 
 IMPORTANT:
 - Focus your review on the changes between the base branch (`{{ pr_data['base']['ref'] }}`) and the head branch (`{{ pr_data['head']['ref'] }}`).
@@ -52,3 +54,4 @@ IMPORTANT:
 - Do NOT ask for human help or clarification. Provide the review based on the information given.
 - Use the `finish` tool call with the JSON review in the `message` argument as your **very last step** to signal completion.
 - If no issues are found, the `message` argument should contain the exact string `[]`.
+    - You are running in a non-interactive environment. Do NOT ask questions or wait for user input. Proceed directly to the `finish` action with the JSON review when your analysis is complete.
