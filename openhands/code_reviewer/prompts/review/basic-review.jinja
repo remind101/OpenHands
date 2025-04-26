@@ -21,13 +21,13 @@ Please also consider the following repository-specific guidelines during your re
 {% endif %}
 
 # Output Format
-Your final action **MUST** be the `finish` action. The `message` argument of this action **MUST** contain **ONLY** a single JSON list containing review comment objects. Each object should have the following structure:
+Your final action **MUST** be an `AgentFinishAction`. The `final_thought` attribute of this action **MUST** contain **ONLY** a single JSON list containing review comment objects. Each object should have the following structure:
 - `path`: (string) The full path to the file being commented on, relative to the repository root (e.g., "openhands/core/config.py").
 - `comment`: (string) The text of your review comment.
 - `line`: (integer, optional) The line number in the file (head commit) the comment refers to. Required if `review_level` is 'line'.
 
-
-Example of the JSON list structure (to be placed inside the `finish` action's `message` argument):
+Example of the JSON list structure (to be placed inside the `AgentFinishAction`'s `final_thought` attribute):
+```json
 [
   {
     "path": "src/utils/parser.py",
@@ -44,12 +44,13 @@ Example of the JSON list structure (to be placed inside the `finish` action's `m
     "comment": "Potential race condition in this test setup."
   }
 ]
+```
 
 IMPORTANT:
 - Focus your review on the changes between the base branch (`{{ pr_data['base']['ref'] }}`) and the head branch (`{{ pr_data['head']['ref'] }}`).
 - Adhere strictly to the specified JSON output format for your final response.
-- Your response in the `finish` action's `message` argument **MUST** contain **ONLY** the raw JSON list, without **ANY** surrounding text, explanations, conversational filler, or markdown formatting (like ```json).
+- The `final_thought` attribute of your `AgentFinishAction` **MUST** contain **ONLY** the raw JSON list, without **ANY** surrounding text, explanations, conversational filler, or markdown formatting (like ```json).
 - Do NOT attempt to modify any files. Your role is only to review.
 - Do NOT ask for human help or clarification. Provide the review based on the information given.
-  - Use the `finish` action to signal completion. The `message` argument **MUST** contain **ONLY** the JSON list of review comments, exactly as specified above.
-- If no issues are found, output an empty JSON list `[]`.
+- Use the `AgentFinishAction` with the JSON review in `final_thought` as your **very last step** to signal completion.
+- If no issues are found, the `final_thought` should contain an empty JSON list `[]`.
