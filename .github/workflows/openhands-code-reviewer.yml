@@ -328,6 +328,7 @@ jobs:
           REVIEW_SUCCESS: ${{ steps.check_result.outputs.REVIEW_SUCCESS }}
         run: |
           cd /tmp && python -m openhands.code_reviewer.post_review_comments \
+            --output-file /tmp/output/review_output_${{ env.PR_NUMBER }}.jsonl \
             --pr-number ${{ env.PR_NUMBER }} \
             --review-success ${{ env.REVIEW_SUCCESS }}
 

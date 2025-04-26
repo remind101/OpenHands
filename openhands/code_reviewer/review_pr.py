@@ -861,13 +861,15 @@ def main() -> None:
         raise ValueError('Invalid repository format. Expected owner/repo')
     owner, repo = parts
 
-    token = my_args.token or os.getenv('GITHUB_TOKEN') or os.getenv('GITLAB_TOKEN')
+    token_str = my_args.token or os.getenv('GITHUB_TOKEN') or os.getenv('GITLAB_TOKEN')
     username = my_args.username if my_args.username else os.getenv('GIT_USERNAME')
     if not username:
         raise ValueError('Username is required.')
 
-    if not token:
+    if not token_str:
         raise ValueError('Token is required.')
+
+    token = SecretStr(token_str)
 
     platform = call_async_from_sync(
         identify_token,
