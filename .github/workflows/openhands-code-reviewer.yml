@@ -216,17 +216,10 @@ jobs:
             echo "Warning: PAT_USERNAME is not set, will use openhands-agent"
           fi
 
-      - name: Debug Variable Values
-        run: |
-          echo "Input base_container_image: ${{ inputs.base_container_image }}"
-          echo "Repo/Org Variable SANDBOX_BASE_CONTAINER_IMAGE: ${{ vars.SANDBOX_BASE_CONTAINER_IMAGE }}"
-          echo "Workflow Env SANDBOX_BASE_CONTAINER_IMAGE: ${{ env.SANDBOX_BASE_CONTAINER_IMAGE }}"
-
       - name: Set environment variables and outputs
         id: set_vars # Add ID here
         env:
           REVIEW_BODY: ${{ github.event.review.body || '' }}
-          WORKFLOW_LEVEL_BASE_IMAGE: ${{ env.SANDBOX_BASE_CONTAINER_IMAGE }} # Pass workflow-level env var
         run: |
           # All triggers for this workflow relate to a Pull Request
           echo "PR_NUMBER=${{ github.event.pull_request.number || github.event.issue.number }}" >> $GITHUB_ENV
@@ -241,15 +234,15 @@ jobs:
           echo "REVIEW_LEVEL=${{ inputs.review_level || 'pr' }}" >> $GITHUB_ENV
           echo "REVIEW_DEPTH=${{ inputs.review_depth || 'quick' }}" >> $GITHUB_ENV
           echo "SANDBOX_ENV_GITHUB_TOKEN=${{ env.AUTH_TOKEN }}" >> $GITHUB_ENV
-          # Set SANDBOX_BASE_CONTAINER_IMAGE: Priority: inputs -> env var -> empty string
+          # Set SANDBOX_BASE_CONTAINER_IMAGE: Priority: inputs -> repo/org var -> empty string
           if [ -n "${{ inputs.base_container_image }}" ]; then
             echo "Using base_container_image from input: ${{ inputs.base_container_image }}"
             FINAL_BASE_IMAGE="${{ inputs.base_container_image }}"
-          elif [ -n "$WORKFLOW_LEVEL_BASE_IMAGE" ]; then
-            echo "Using WORKFLOW_LEVEL_BASE_IMAGE from environment."
-            FINAL_BASE_IMAGE="$WORKFLOW_LEVEL_BASE_IMAGE"
+          elif [ -n "${{ vars.SANDBOX_BASE_CONTAINER_IMAGE }}" ]; then
+            echo "Using SANDBOX_BASE_CONTAINER_IMAGE from repo/org vars."
+            FINAL_BASE_IMAGE="${{ vars.SANDBOX_BASE_CONTAINER_IMAGE }}"
           else
-            echo "No base_container_image input or environment variable found. Defaulting to empty."
+            echo "No base_container_image input or repo/org variable found. Defaulting to empty."
             FINAL_BASE_IMAGE=""
           fi
           echo "determined_base_image=$FINAL_BASE_IMAGE" >> $GITHUB_OUTPUT
