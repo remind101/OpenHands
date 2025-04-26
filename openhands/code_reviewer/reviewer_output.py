@@ -22,8 +22,5 @@ class ReviewerOutput:
         default_factory=list
     )  # List of review comments
     metrics: Optional[dict[str, Any]] = None  # Agent metrics
-    final_agent_state: Optional[str] = (
-        None  # Final state of the agent (e.g., FINISHED, ERROR)
-    )
     success: bool = False  # Whether the review process completed successfully
     error: Optional[str] = None  # Error message if success is False
