@@ -3,12 +3,10 @@ import asyncio
 import dataclasses  # Added for serialization
 import json
 import os
-import pathlib
 import shutil
 from typing import Any, Dict, List
 
 import aiofiles  # type: ignore[import-untyped]
-import httpx
 from jinja2 import Template
 from pydantic import SecretStr
 
@@ -38,7 +36,7 @@ from openhands.resolver.interfaces.github import (
 from openhands.resolver.interfaces.gitlab import (
     GitlabPRHandler,  # Removed GitlabIssueHandler
 )
-from openhands.resolver.interfaces.issue import (  # Added IssueHandlerInterface
+from openhands.resolver.interfaces.issue import (
     Issue,
     IssueHandlerInterface,
 )
@@ -50,6 +48,21 @@ from openhands.resolver.utils import (
 )
 from openhands.runtime.base import Runtime
 from openhands.utils.async_utils import GENERAL_TIMEOUT, call_async_from_sync
+
+
+# Helper for JSON serialization
+def default_serializer(obj):
+    if hasattr(obj, 'to_dict'):
+        return obj.to_dict()
+    if dataclasses.is_dataclass(obj):
+        return dataclasses.asdict(obj)
+    try:
+        if isinstance(obj, (str, int, float, bool, list, dict, type(None))):
+            return obj
+        return str(obj)
+    except TypeError:
+        return str(obj)
+
 
 # Don't make this confgurable for now, unless we have other competitive agents
 AGENT_CLASS = 'CodeActAgent'
@@ -90,7 +103,7 @@ def initialize_runtime(
         raise RuntimeError(f'Failed to set git config.\n{obs}')
 
 
-async def process_pr_for_review(
+async def process_review(
     issue: Issue,
     platform: ProviderType,
     # base_commit: str, # Removed, not used here
@@ -100,8 +113,8 @@ async def process_pr_for_review(
     base_container_image: str | None,
     runtime_container_image: str | None,
     prompt_template: str,
-    issue_handler: IssueHandlerInterface,  # Use interface type hint
     repo_dir: str,
+    pr_diff: str,  # Added PR diff
     repo_instruction: str | None = None,
     reset_logger: bool = False,
     review_level: str = 'file',
@@ -159,30 +172,10 @@ async def process_pr_for_review(
 
     # Prepare the initial prompt/instruction for code review
     template = Template(prompt_template)
-    pr_diff = ''
-    try:
-        # Ensure get_pr_diff exists and call it
-        if not hasattr(issue_handler, 'get_pr_diff'):
-            raise AttributeError(
-                f"{type(issue_handler).__name__} does not have method 'get_pr_diff'"
-            )
-        pr_diff = await issue_handler.get_pr_diff(issue.number)  # Added await
-    except Exception as e:
-        logger.error(f'Failed to get PR diff for PR #{issue.number}: {e}')
-        return ReviewerOutput(
-            pr_info=issue,
-            review_level=review_level,
-            review_depth=review_depth,
-            instruction='',  # No instruction generated
-            history=[],
-            success=False,
-            error=f'Failed to get PR diff: {e}',
-        )
-
     prompt_vars = {
         'issue': issue,
         'repo_instruction': repo_instruction,
-        'pr_diff': pr_diff,
+        'pr_diff': pr_diff,  # Use passed pr_diff
         'review_level': review_level,
         'review_depth': review_depth,
     }
@@ -410,292 +403,208 @@ async def process_pr_for_review(
     return output
 
 
-def pr_handler_factory(
-    owner: str,
-    repo: str,
-    token: str,
-    # llm_config: LLMConfig, # Removed, not needed here
-    platform: ProviderType,
-    username: str | None = None,
-    base_domain: str | None = None,
-) -> IssueHandlerInterface:  # Return interface type
-    # Determine default base_domain based on platform
-    if base_domain is None:
-        base_domain = 'github.com' if platform == ProviderType.GITHUB else 'gitlab.com'
-
-    if platform == ProviderType.GITHUB:
-        # Return the handler directly, not wrapped in ServiceContextPR
-        return GithubPRHandler(owner, repo, token, username, base_domain)
-    elif platform == ProviderType.GITLAB:
-        # Return the handler directly, not wrapped in ServiceContextPR
-        return GitlabPRHandler(owner, repo, token, username, base_domain)
-    else:
-        raise ValueError(f'Unsupported platform: {platform}')
-
-
-async def review_pr_entrypoint(
-    owner: str,
-    repo: str,
+async def run_review_task(
+    pr_url: str,
+    review_level: str,
+    review_depth: str,
     token: str,
     username: str,
-    platform: ProviderType,
     max_iterations: int,
-    output_dir: str,
+    output_dir: str,  # Keep output_dir for potential future use, though not used for printing
     llm_config: LLMConfig,
     base_container_image: str | None,
     runtime_container_image: str | None,
-    prompt_template: str,
-    review_level: str,
-    review_depth: str,
-    repo_instruction: str | None,
-    pr_number: int,
-    comment_id: int | None,
-    reset_logger: bool = False,
-    base_domain: str | None = None,
+    prompt_file: str | None,
+    repo_instruction_file: str | None,
+    base_domain: str | None,
 ) -> None:
-    issue: Issue | None = None
+    """Orchestrates the code review process for a given PR URL."""
+    logger.info(f'Starting review task for PR: {pr_url}')
 
-    # Setup output directory and log file early to ensure it exists for error logging
-    output_file = os.path.join(output_dir, 'output', f'review_output_{pr_number}.jsonl')
-    pathlib.Path(os.path.dirname(output_file)).mkdir(parents=True, exist_ok=True)
-    log_dir = os.path.join(output_dir, 'infer_logs')
-    pathlib.Path(log_dir).mkdir(parents=True, exist_ok=True)
-    logger.info(f'Using output directory: {output_dir}')
-    logger.info(f'Writing output to {output_file}')
+    # 1. Identify platform and parse URL
+    platform = await identify_token(token, base_domain)
+    logger.info(f'Identified platform: {platform.value}')
+    handler_class: type[IssueHandlerInterface]
+    if platform == ProviderType.GITHUB:
+        handler_class = GithubPRHandler
+    elif platform == ProviderType.GITLAB:
+        handler_class = GitlabPRHandler
+    else:
+        raise ValueError(f'Unsupported platform: {platform}')
 
-    """Review a single pull request.
+    assert hasattr(
+        handler_class, 'parse_pr_url'
+    ), f'{handler_class.__name__} lacks parse_pr_url'
+    owner, repo, issue_number = handler_class.parse_pr_url(pr_url)
+    logger.info(f'Parsed PR URL: owner={owner}, repo={repo}, number={issue_number}')
 
-    Args:
-        owner: owner of the repo.
-        repo: repository to review PRs in form of `owner/repo`.
-        token: token to access the repository.
-        username: username to access the repository.
-        platform: platform of the repository.
-        max_iterations: Maximum number of iterations to run.
-        output_dir: Output directory to write the results.
-        llm_config: Configuration for the language model.
-        base_container_image: Base container image for sandbox.
-        runtime_container_image: Runtime container image for sandbox.
-        prompt_template: Prompt template to use.
-        review_level: Level of review (e.g., 'line', 'file', 'pr').
-        review_depth: Depth of review (e.g., 'quick', 'deep').
-        repo_instruction: Repository instruction to use.
-        pr_number: Pull Request number to review.
-        comment_id: Optional ID of a specific comment to focus on.
-        reset_logger: Whether to reset the logger for multiprocessing.
-        base_domain: The base domain for the git server (defaults to "github.com" for GitHub and "gitlab.com" for GitLab)
-    """
-    # Determine default base_domain based on platform
+    # 2. Create Issue Handler
+    # Set default base_domain if None
     if base_domain is None:
         base_domain = 'github.com' if platform == ProviderType.GITHUB else 'gitlab.com'
+    issue_handler = handler_class(  # type: ignore[call-arg]
+        owner=owner,
+        repo=repo,
+        token=token,
+        username=username,
+        base_domain=base_domain,  # Now guaranteed to be str
+    )
+    logger.info(f'Created issue handler: {type(issue_handler).__name__}')
+
+    # 3. Fetch PR Info (Issue object)
+    assert hasattr(
+        issue_handler, 'get_issue_info'
+    ), f'{type(issue_handler).__name__} lacks get_issue_info'
+    try:
+        pr_info_list = await issue_handler.get_issue_info([issue_number])
+        if not pr_info_list:
+            raise ValueError(f'PR #{issue_number} not found or accessible.')
+        pr_info = pr_info_list[0]
+        logger.info(f'Fetched PR info for #{pr_info.number}')
+    except Exception as e:
+        logger.error(f'Failed to fetch PR info: {e}')
+        # Print error output similar to main's exception handling
+        error_output = ReviewerOutput(
+            pr_info=Issue(number=issue_number, url=pr_url),  # Basic info
+            review_level=review_level,
+            review_depth=review_depth,
+            instruction='',
+            history=[],
+            success=False,
+            error=f'Failed to fetch PR info: {e}',
+        )
+        print(json.dumps(dataclasses.asdict(error_output), indent=2))
+        return  # Exit early
+
+    # Initialize pr_diff before try block
+    pr_diff = ''
+
+    # 4. Setup repository directory
+    repo_dir = os.path.join(output_dir, 'repo')  # Use output_dir for repo checkout
+    os.makedirs(repo_dir, exist_ok=True)
+    logger.info(f'Repository directory set to: {repo_dir}')
+
+    # 5. Checkout PR branch
+    try:
+        assert hasattr(
+            issue_handler, 'checkout_pr'
+        ), f'{type(issue_handler).__name__} lacks checkout_pr'
+        await issue_handler.checkout_pr(pr_info.number, repo_dir)
+        logger.info(f'Checked out PR branch for #{pr_info.number} into {repo_dir}')
+        # base_commit = await issue_handler.get_head_commit(repo_dir) # Not needed by process_review
+        # logger.info(f'Base commit set to: {base_commit}')
+    except Exception as e:
+        logger.error(f'Failed to checkout PR branch: {e}')
+        error_output = ReviewerOutput(
+            pr_info=pr_info,
+            review_level=review_level,
+            review_depth=review_depth,
+            instruction='',
+            history=[],
+            success=False,
+            error=f'Failed to checkout PR branch: {e}',
+        )
+        print(json.dumps(dataclasses.asdict(error_output), indent=2))
+        return  # Exit early
+
+    # 6. Read repository instructions if provided
+    repo_instruction: str | None = None
+    if repo_instruction_file:
+        try:
+            async with aiofiles.open(repo_instruction_file, mode='r') as f:
+                repo_instruction = await f.read()
+            logger.info(f'Read repository instructions from: {repo_instruction_file}')
+        except Exception as e:
+            logger.warning(
+                f'Could not read repository instruction file {repo_instruction_file}: {e}'
+            )
+            # Continue without repo instructions if file reading fails
+
+    # 7. Read prompt template
+    if prompt_file is None:
+        # Use default prompt if none provided
+        prompt_file = os.path.join(
+            os.path.dirname(__file__), 'prompts/review/basic.jinja'
+        )
+        logger.info(f'Using default prompt template: {prompt_file}')
 
     try:
-        pr_handler = pr_handler_factory(
-            owner, repo, token, platform, username, base_domain
+        async with aiofiles.open(prompt_file, mode='r') as f:
+            prompt_template = await f.read()
+        logger.info(f'Read prompt template from: {prompt_file}')
+    except Exception as e:
+        logger.error(f'Failed to read prompt template file {prompt_file}: {e}')
+        error_output = ReviewerOutput(
+            pr_info=pr_info,
+            review_level=review_level,
+            review_depth=review_depth,
+            instruction='',
+            history=[],
+            success=False,
+            error=f'Failed to read prompt template: {e}',
         )
+        print(json.dumps(dataclasses.asdict(error_output), indent=2))
+        return  # Exit early
 
-        # Load PR data
-        prs: list[Issue] = pr_handler.get_converted_issues(
-            issue_numbers=[pr_number], comment_id=comment_id
+    # 8. Fetch PR Diff
+    pr_diff = ''
+    try:
+        # Ensure get_pr_diff exists and call it
+        if not hasattr(issue_handler, 'get_pr_diff'):
+            raise AttributeError(
+                f"{type(issue_handler).__name__} does not have method 'get_pr_diff'"
+            )
+        pr_diff = await issue_handler.get_pr_diff(pr_info.number)  # type: ignore[attr-defined]
+        logger.info(f'Fetched PR diff for #{pr_info.number}')
+    except Exception as e:
+        logger.error(f'Failed to get PR diff for PR #{pr_info.number}: {e}')
+        error_output = ReviewerOutput(
+            pr_info=pr_info,
+            review_level=review_level,
+            review_depth=review_depth,
+            instruction='',  # No instruction generated yet
+            history=[],
+            success=False,
+            error=f'Failed to get PR diff: {e}',
         )
+        print(json.dumps(dataclasses.asdict(error_output), indent=2))
+        return  # Exit early
 
-        if not prs:
-            raise ValueError(
-                f'No PR found for PR number {pr_number}. Please verify that:\n'
-                f'1. The PR #{pr_number} exists in the repository {owner}/{repo}\n'
-                f'2. You have the correct permissions to access it\n'
-                f'3. The repository name is spelled correctly'
-            )
-
-        pr_info = prs[0]
-
-        if comment_id is not None:
-            # Check if the provided comment_id actually exists in the fetched PR data
-            all_comments = (
-                (pr_info.review_comments or [])
-                + (pr_info.issue_comments or [])
-                + (
-                    pr_info.review_threads or []
-                )  # Assuming review_threads contain comments
-            )
-            # Attempt to find the comment ID, converting to string for comparison
-            found_comment = False
-            for comment in all_comments:
-                if comment and str(comment.get('id', '')) == str(comment_id):
-                    found_comment = True
-                    break
-            if not found_comment:
-                logger.warning(
-                    f'Comment ID {comment_id} provided, but no matching comment found for PR #{pr_number}. Proceeding with full PR review.'
-                )
-                # Reset comment_id so the agent doesn't focus on a non-existent comment
-                comment_id = None
-
-        # Assume repository is already cloned and checked out to the correct state
-        # by the CI/CD workflow in the `output_dir/repo` directory.
-        repo_dir = os.environ.get('GITHUB_WORKSPACE')
-        if not repo_dir or not os.path.exists(os.path.join(repo_dir, '.git')):
-            raise FileNotFoundError(
-                f'Repository not found or not a git repository in GITHUB_WORKSPACE ({repo_dir}). Please ensure the workflow checks out the repo.'
-            )
-
-        # Load repo-specific instructions if not provided via args
-        if repo_instruction is None:
-            guideline_path_md = os.path.join(
-                repo_dir, '.github', 'CODE_REVIEW_GUIDELINES.md'
-            )
-            guideline_path_txt = os.path.join(
-                repo_dir, '.github', 'CODE_REVIEW_GUIDELINES.txt'
-            )
-            openhands_instructions_path = os.path.join(
-                repo_dir, '.openhands_instructions'
-            )
-            instruction_path_to_use = None
-            if os.path.exists(guideline_path_md):
-                instruction_path_to_use = guideline_path_md
-            elif os.path.exists(guideline_path_txt):
-                instruction_path_to_use = guideline_path_txt
-            elif os.path.exists(openhands_instructions_path):
-                instruction_path_to_use = openhands_instructions_path
-
-            if instruction_path_to_use:
-                logger.info(
-                    f'Using repository instruction file: {instruction_path_to_use}'
-                )
-                try:
-                    async with aiofiles.open(instruction_path_to_use, mode='r') as f:
-                        repo_instruction = await f.read()
-                except Exception as e:
-                    logger.error(f'Error reading repository instruction file: {e}')
-                    # Continue without repo instructions if file reading fails
-
-        # Process the PR
-        output = await process_pr_for_review(
+    # 9. Process the PR using the core logic function
+    try:
+        output = await process_review(
             issue=pr_info,
             platform=platform,
-            # base_commit=base_commit, # Removed
             max_iterations=max_iterations,
             llm_config=llm_config,
-            output_dir=output_dir,
-            repo_dir=repo_dir,
+            output_dir=output_dir,  # Pass output_dir for workspace creation inside process_review
             base_container_image=base_container_image,
             runtime_container_image=runtime_container_image,
             prompt_template=prompt_template,
-            issue_handler=pr_handler,  # Pass the handler instance
+            pr_diff=pr_diff,  # Pass the fetched diff
+            repo_dir=repo_dir,  # Pass the checkout location
             repo_instruction=repo_instruction,
-            reset_logger=reset_logger,
+            reset_logger=False,  # Assuming single process, no need to reset logger
             review_level=review_level,
             review_depth=review_depth,
         )
+        # Print the final output
+        print(json.dumps(dataclasses.asdict(output), indent=2))
+        logger.info('Review task completed successfully.')
 
-    except (ValueError, AttributeError, FileNotFoundError) as e:
-        logger.error(f'Error during setup or PR processing: {e}')
-        # Create a basic error output if we failed before processing
-        issue_to_log = issue  # Use the 'issue' variable from the outer scope
-        if issue_to_log is None:
-            try:
-                # Try to create a basic Issue object if owner/repo/pr_number are defined
-                issue_to_log = Issue(
-                    owner=owner,
-                    repo=repo,
-                    number=pr_number,
-                    title=f'PR #{pr_number}',
-                    body='',
-                )
-            except NameError:
-                # If owner/repo/pr_number are not defined (error happened very early), create a dummy issue
-                issue_to_log = Issue(
-                    owner='unknown',
-                    repo='unknown',
-                    number=pr_number if 'pr_number' in locals() else -1,
-                    title=f"PR #{pr_number if 'pr_number' in locals() else 'unknown'}",
-                    body='',
-                )
-        output = ReviewerOutput(
-            pr_info=issue_to_log,
-            review_level=review_level,
-            review_depth=review_depth,
-            instruction='',
-            history=[],
-            success=False,
-            error=str(e),
-            metrics=None,
-            comments=[],
-        )
-    except httpx.HTTPStatusError as e:
-        logger.error(f'HTTP Status Error: {e}')
-        logger.error(f'Response body: {e.response.text}')
-        # Re-raise the exception after logging
-        raise
     except Exception as e:
-        logger.exception(
-            f'Unexpected error during review_pr_entrypoint for PR {pr_number}:'
-        )
-        issue_to_log = issue  # Use the 'issue' variable from the outer scope
-        if issue_to_log is None:
-            try:
-                # Try to create a basic Issue object if owner/repo/pr_number are defined
-                issue_to_log = Issue(
-                    owner=owner,
-                    repo=repo,
-                    number=pr_number,
-                    title=f'PR #{pr_number}',
-                    body='',
-                )
-            except NameError:
-                # If owner/repo/pr_number are not defined (error happened very early), create a dummy issue
-                issue_to_log = Issue(
-                    owner='unknown',
-                    repo='unknown',
-                    number=pr_number if 'pr_number' in locals() else -1,
-                    title=f"PR #{pr_number if 'pr_number' in locals() else 'unknown'}",
-                    body='',
-                )
-        output = ReviewerOutput(
-            pr_info=issue_to_log,
+        logger.error(f'An unexpected error occurred during review processing: {e}')
+        # Create a generic error output if processing fails unexpectedly
+        error_output = ReviewerOutput(
+            pr_info=pr_info,
             review_level=review_level,
             review_depth=review_depth,
-            instruction='',
+            instruction='',  # May not have been generated
             history=[],
             success=False,
-            error=f'Unexpected error: {str(e)}',
-            metrics=None,
-            comments=[],
+            error=f'Review processing failed: {e}',
         )
-
-    # Write the output to a JSONL file (ensure output is not None)
-    if output is not None:
-        output_file = os.path.join(output_dir, f'review_output_{pr_number}.jsonl')
-        try:
-            async with aiofiles.open(output_file, mode='w') as f:
-                # Convert ReviewerOutput to dict, handling nested dataclasses and complex types
-                def default_serializer(obj):
-                    if hasattr(obj, 'to_dict'):
-                        # Use to_dict if available (like for Event subclasses)
-                        return obj.to_dict()
-                    if dataclasses.is_dataclass(obj):
-                        # Use asdict for other dataclasses
-                        return dataclasses.asdict(obj)
-                    # Add handling for other non-serializable types if necessary
-                    try:
-                        # Attempt default serialization first (might work for simple types)
-                        # Check if it's basic type before encoding
-                        if isinstance(
-                            obj, (str, int, float, bool, list, dict, type(None))
-                        ):
-                            return obj
-                        return str(obj)  # Fallback to string representation
-                    except TypeError:
-                        return str(obj)  # Final fallback
-
-                # Use dataclasses.asdict for the main object, then serialize with custom handler
-                output_dict = dataclasses.asdict(output)
-                await f.write(
-                    json.dumps(output_dict, default=default_serializer) + '\n'
-                )
-            logger.info(f'Review output written to {output_file}')
-        except Exception as e:
-            logger.error(f'Failed to write output file {output_file}: {e}')
+        print(json.dumps(dataclasses.asdict(error_output), indent=2))
 
 
 def main() -> None:
@@ -820,6 +729,9 @@ def main() -> None:
 
     my_args = parser.parse_args()
 
+    review_level = my_args.review_level  # noqa: F841
+    review_depth = my_args.review_depth  # noqa: F841
+    output_dir = my_args.output_dir  # noqa: F841
     # Initialize container image variables
     base_container_image: str | None = None
     runtime_container_image: str | None = None
@@ -912,11 +824,6 @@ def main() -> None:
     if api_version is not None:
         llm_config.api_version = api_version
 
-    repo_instruction = None
-    if my_args.repo_instruction_file:
-        with open(my_args.repo_instruction_file, 'r') as f:
-            repo_instruction = f.read()
-
     # Set default prompt file if not provided
     prompt_file = my_args.prompt_file
     if prompt_file is None:
@@ -926,36 +833,38 @@ def main() -> None:
         )
         logger.info(f'Prompt file not specified, using default: {prompt_file}')
 
-    # Read the prompt template
-    try:
-        with open(prompt_file, 'r') as f:
-            prompt_template = f.read()
-    except FileNotFoundError:
-        logger.error(f'Prompt template file not found: {prompt_file}')
-        raise
-    except Exception as e:
-        logger.error(f'Error reading prompt template file {prompt_file}: {e}')
-        raise
+    # Construct pr_url
+    base_domain_val = my_args.base_domain
+    if base_domain_val is None:
+        base_domain_val = (
+            'github.com' if platform == ProviderType.GITHUB else 'gitlab.com'
+        )
+    # Adjust URL format based on platform
+    pr_number = my_args.pr_number  # Need pr_number here
+    if platform == ProviderType.GITLAB:
+        pr_url = (
+            f'https://{base_domain_val}/{owner}/{repo}/-/merge_requests/{pr_number}'
+        )
+    else:  # Default to GitHub format
+        pr_url = f'https://{base_domain_val}/{owner}/{repo}/pull/{pr_number}'
+    logger.info(f'Constructed PR URL: {pr_url}')
 
+    repo_instruction_file = my_args.repo_instruction_file  # Define file path variable
     asyncio.run(
-        review_pr_entrypoint(  # Changed from resolve_issue
-            owner=owner,
-            repo=repo,
+        run_review_task(
+            pr_url=pr_url,
+            review_level=my_args.review_level,
+            review_depth=my_args.review_depth,
             token=token,
             username=username,
-            platform=platform,
-            base_container_image=base_container_image,
-            runtime_container_image=runtime_container_image,
             max_iterations=my_args.max_iterations,
             output_dir=my_args.output_dir,
             llm_config=llm_config,
-            prompt_template=prompt_template,
-            review_level=my_args.review_level,  # Added
-            review_depth=my_args.review_depth,  # Added
-            repo_instruction=repo_instruction,
-            pr_number=my_args.pr_number,  # Changed from issue_number
-            comment_id=my_args.comment_id,
-            base_domain=my_args.base_domain,
+            base_container_image=base_container_image,
+            runtime_container_image=runtime_container_image,
+            prompt_file=prompt_file,  # Pass file path
+            repo_instruction_file=repo_instruction_file,  # Pass file path
+            base_domain=my_args.base_domain,  # Pass original arg
         )
     )
 
