@@ -736,6 +736,12 @@ def main() -> None:
         help='LLM base URL to use.',
     )
     parser.add_argument(
+        '--llm-num-retries',
+        type=int,
+        default=3,  # Default number of retries
+        help='Number of retries for LLM API calls.',
+    )
+    parser.add_argument(
         '--prompt-file',
         type=str,
         default=None,
@@ -865,6 +871,7 @@ def main() -> None:
         model=model,
         api_key=SecretStr(api_key) if api_key else None,
         base_url=base_url,
+        num_retries=my_args.llm_num_retries,  # Use the argument here
     )
 
     # Only set api_version if it was explicitly provided, otherwise let LLMConfig handle it
