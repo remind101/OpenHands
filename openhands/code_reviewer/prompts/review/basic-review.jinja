@@ -21,24 +21,24 @@ Please also consider the following repository-specific guidelines during your re
 {% endif %}
 
 # Output Format
-Your final action **MUST** be an `AgentFinishAction`.
-- The `thought` attribute of this action can contain any summary or explanation of your review process.
-- The `final_thought` attribute of this action **MUST** contain **ONLY** a single, raw JSON list containing review comment objects. It must NOT contain any other text, explanations, or markdown formatting.
+Your final action **MUST** be the `finish` tool call.
+- The `message` argument of this tool call **MUST** contain **ONLY** a single, raw JSON list containing review comment objects. It must NOT contain any other text, explanations, or markdown formatting.
+- You can include any summary or explanation of your review process in the `thought` that accompanies the `finish` tool call.
 
 Each comment object in the JSON list should have the following structure:
 - `path`: (string) The full path to the file being commented on, relative to the repository root (e.g., "openhands/core/config.py").
 - `comment`: (string) The text of your review comment.
 - `line`: (integer, optional) The line number in the file (head commit) the comment refers to. Required if `review_level` is 'line'.
 
-Example structure of the JSON list (this exact string goes into `final_thought`):
+Example structure of the JSON list (this exact string goes into the `message` argument of the `finish` tool call):
 `[{"path": "src/utils/parser.py", "line": 42, "comment": "..."}, {"path": "src/main.py", "comment": "..."}]`
 
 IMPORTANT:
 - Focus your review on the changes between the base branch (`{{ pr_data['base']['ref'] }}`) and the head branch (`{{ pr_data['head']['ref'] }}`).
 - Adhere strictly to the specified JSON output format for your final response.
-- The `final_thought` attribute of your `AgentFinishAction` **MUST** contain **ONLY** the raw JSON list string. No extra text, no markdown.
-- Any explanatory text belongs in the `thought` attribute, NOT `final_thought`.
+- The `message` argument of your `finish` tool call **MUST** contain **ONLY** the raw JSON list string. No extra text, no markdown.
+- Any explanatory text belongs in the accompanying `thought`, NOT the `message` argument.
 - Do NOT attempt to modify any files. Your role is only to review.
 - Do NOT ask for human help or clarification. Provide the review based on the information given.
-- Use the `AgentFinishAction` with the JSON review in `final_thought` as your **very last step** to signal completion.
-- If no issues are found, the `final_thought` should contain the exact string `[]`.
+- Use the `finish` tool call with the JSON review in the `message` argument as your **very last step** to signal completion.
+- If no issues are found, the `message` argument should contain the exact string `[]`.
