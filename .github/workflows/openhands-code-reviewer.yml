@@ -295,14 +295,16 @@ jobs:
           PYTHONPATH: ""
         run: |
           echo "Using AUTH_TOKEN: $(echo $AUTH_TOKEN | cut -c 1-4)...$(echo $AUTH_TOKEN | rev | cut -c 1-4 | rev)"
-          cd /tmp && python -m openhands.code_reviewer.review_pr \
+          # Run from the workspace directory where the repo is checked out
+          python -m openhands.code_reviewer.review_pr \
             --selected-repo ${{ github.repository }} \
             --pr-number ${{ env.PR_NUMBER }} \
             --max-iterations ${{ env.MAX_ITERATIONS }} \
             --comment-id ${{ env.COMMENT_ID }} \
             --review-level ${{ env.REVIEW_LEVEL }} \
             --review-depth ${{ env.REVIEW_DEPTH }} \
-            --is-experimental ${{ steps.install_openhands.outputs.isExperimental }}
+            --is-experimental ${{ steps.install_openhands.outputs.isExperimental }} \
+            --output-dir /tmp
 
       - name: Check review result
         id: check_result
