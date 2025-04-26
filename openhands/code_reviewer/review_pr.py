@@ -5,7 +5,7 @@ import json
 import os
 import pathlib
 import shutil
-from typing import Any, Dict, List
+from typing import List
 
 import aiofiles  # type: ignore[import-untyped]
 import httpx
@@ -30,6 +30,7 @@ from openhands.events.observation import (
     ErrorObservation,  # Added for error checking
     Observation,
 )
+from openhands.events.stream import EventStreamSubscriber
 from openhands.integrations.service_types import ProviderType
 from openhands.resolver.interfaces.github import (
     GithubPRHandler,  # Removed GithubIssueHandler
@@ -154,22 +155,6 @@ async def process_pr_for_review(
     )
     config.set_llm_config(llm_config)
 
-    runtime = None
-    try:
-        runtime = create_runtime(config)
-        await runtime.connect()
-    except Exception as e:
-        logger.error(f'Failed to create or connect runtime: {e}')
-        return ReviewerOutput(
-            pr_info=issue,
-            review_level=review_level,
-            review_depth=review_depth,
-            instruction='',  # Add default
-            history=[],  # Add default
-            success=False,
-            error=f'Failed to create or connect runtime: {e}',
-        )
-
     # Prepare the initial prompt/instruction for code review
     template = Template(prompt_template)
     pr_diff = ''
@@ -182,7 +167,8 @@ async def process_pr_for_review(
         pr_diff = await issue_handler.get_pr_diff(issue.number)  # Added await
     except Exception as e:
         logger.error(f'Failed to get PR diff for PR #{issue.number}: {e}')
-        await runtime.close()  # type: ignore[func-returns-value]
+        # Cannot close runtime here as it's not created yet
+        # await runtime.close() # type: ignore[func-returns-value]
         return ReviewerOutput(
             pr_info=issue,
             review_level=review_level,
@@ -207,16 +193,42 @@ async def process_pr_for_review(
 
     # Run the agent
     action = MessageAction(content=instruction, image_urls=images_urls)
+
+    # Initialize variables needed in finally block and for results
+    runtime = None
+    event_stream = None
+    original_main_subscribers = {}
     state: State | None = None
-    comments: List[ReviewComment] = []  # Type hint added
+    comments: List[ReviewComment] = []
     success = False
     error_message: str | None = None
     final_agent_state: AgentState | None = None
     agent_history: List[Event] = []
-    agent_metrics: Dict[str, Any] | None = None
 
-    logger.info(f'Starting agent loop with initial action: {action}')
     try:
+        # 1. Create and connect runtime
+        logger.info('Creating and connecting runtime...')
+        runtime = create_runtime(config)
+        await runtime.connect()
+        logger.info('Runtime connected.')
+        event_stream = runtime.event_stream
+
+        # 2. Backup and remove MAIN subscribers
+        if event_stream:
+            original_main_subscribers = event_stream._subscribers.get(
+                EventStreamSubscriber.MAIN, {}
+            ).copy()
+            if original_main_subscribers:
+                logger.info(
+                    f'Temporarily removing {len(original_main_subscribers)} MAIN subscribers.'
+                )
+                for callback_id in list(original_main_subscribers.keys()):
+                    event_stream.unsubscribe(EventStreamSubscriber.MAIN, callback_id)
+        else:
+            logger.warning('Runtime does not have an event_stream attribute.')
+
+        # 3. Run the controller
+        logger.info(f'Starting agent loop with initial action: {action}')
         state = await run_controller(
             config=config,
             initial_user_action=action,
@@ -364,14 +376,26 @@ async def process_pr_for_review(
                 logger.error(error_message)
 
     except Exception as e:
-        # Catch any other unexpected errors during processing
-        logger.exception('An unexpected exception occurred during agent execution:')
+        # Catch errors from runtime creation OR agent execution
+        logger.exception(
+            'An exception occurred during runtime setup or agent execution:'
+        )
         success = False
         comments = []
-        error_message = f'Unexpected error during agent execution: {str(e)}'
-        final_agent_state = AgentState.ERROR  # Assume error state
+        # Ensure error_message reflects this exception if not already set
+        if not error_message:
+            error_message = f'Error during runtime setup or agent execution: {str(e)}'
+        final_agent_state = AgentState.ERROR
 
     finally:
+        # 5. Restore MAIN subscribers
+        if event_stream and original_main_subscribers:
+            logger.info(f'Restoring {len(original_main_subscribers)} MAIN subscribers.')
+            for callback_id, callback_fn in original_main_subscribers.items():
+                event_stream.subscribe(
+                    EventStreamSubscriber.MAIN, callback_fn, callback_id
+                )
+
         # Ensure runtime is closed if it was created
         if runtime is not None:
             try:
