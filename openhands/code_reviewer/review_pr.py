@@ -443,9 +443,20 @@ async def review_pr_entrypoint(
 ) -> None:
     issue: Issue | None = None
 
-    # Set log level to DEBUG to capture detailed logs
+    # Force logger configuration to DEBUG level
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s:%(levelname)s: %(filename)s:%(lineno)d - %(message)s'
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
     logger.setLevel(logging.DEBUG)
-    logger.debug('Log level set to DEBUG')
+    logger.propagate = (
+        False  # Prevent propagation to root logger if it has conflicting handlers
+    )
+    logger.debug('Logger reconfigured to DEBUG level for review_pr_entrypoint')
     # Setup output directory and log file early to ensure it exists for error logging
     output_file = os.path.join(output_dir, 'output', f'review_output_{pr_number}.jsonl')
     pathlib.Path(os.path.dirname(output_file)).mkdir(parents=True, exist_ok=True)
