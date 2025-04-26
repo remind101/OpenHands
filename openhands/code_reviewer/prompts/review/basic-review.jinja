@@ -9,7 +9,7 @@ Body:
 {% endif %}
 
 # Review Task
-Analyze the code changes between the base branch (`{{ pr_data['base']['ref'] }}`) and the head branch (`{{ pr_data['head']['ref'] }}`) using git commands (e.g., `git diff origin/{{ pr_data['base']['ref'] }}...origin/{{ pr_data['head']['ref'] }}`). Base your review on the following parameters:
+First, ensure the latest changes are fetched using `git fetch origin`. Then, analyze the code changes between the base branch (`{{ pr_data['base']['ref'] }}`) and the head branch (`{{ pr_data['head']['ref'] }}`) using git commands (e.g., `git diff origin/{{ pr_data['base']['ref'] }}...origin/{{ pr_data['head']['ref'] }}`). Base your review on the following parameters:
 - Review Level: `{{ review_level }}` (Specifies the granularity: 'line' for specific lines, 'file' for overall file changes, 'pr' for a high-level summary)
 - Review Depth: `{{ review_depth }}` (Specifies the thoroughness: 'quick' for obvious issues, 'medium' for standard checks, 'deep' for in-depth analysis including potential bugs and security concerns)
 
