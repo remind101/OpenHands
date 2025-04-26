@@ -316,6 +316,8 @@ jobs:
             --comment-id ${{ env.COMMENT_ID }} \
             --output-file ./output/review_output_${{ env.PR_NUMBER }}.jsonl \
             --is-experimental ${{ steps.install_openhands.outputs.isExperimental }}
+            --review-level ${{ env.REVIEW_LEVEL }} \
+            --review-depth ${{ env.REVIEW_DEPTH }}
 
 
       - name: Dump Docker Logs
