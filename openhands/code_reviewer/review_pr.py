@@ -439,10 +439,10 @@ async def run_review_task(
 
     # 3. Fetch PR Info (Issue object)
     assert hasattr(
-        issue_handler, 'get_issue_info'
-    ), f'{type(issue_handler).__name__} lacks get_issue_info'
+        issue_handler, 'get_converted_issues'
+    ), f'{type(issue_handler).__name__} lacks get_converted_issues'
     try:
-        pr_info_list = await issue_handler.get_issue_info([issue_number])
+        pr_info_list = issue_handler.get_converted_issues([issue_number])
         if not pr_info_list:
             raise ValueError(f'PR #{issue_number} not found or accessible.')
         pr_info = pr_info_list[0]
