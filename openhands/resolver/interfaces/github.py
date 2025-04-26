@@ -44,12 +44,7 @@ class GithubIssueHandler(IssueHandlerInterface):
         self.owner = owner
         self.repo = repo
         self.token = token
-        if token:
-            logger.info(
-                f'GithubPRHandler initialized with token: {token[:4]}...{token[-4:]}'
-            )
-        else:
-            logger.warning('GithubPRHandler initialized without a token.')
+
         self.username = username
         self.base_domain = base_domain
         self.base_url = self.get_base_url()
