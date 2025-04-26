@@ -43,7 +43,6 @@ from openhands.resolver.interfaces.issue import (
     IssueHandlerInterface,
 )
 from openhands.resolver.utils import (
-    codeact_user_response,
     get_unique_uid,
     identify_token,
     reset_logger_for_multiprocessing,
@@ -195,13 +194,6 @@ async def process_review(
     agent_history: List[Event] = []
     agent_metrics: Dict[str, Any] | None = None  # Added from resolve_issue
 
-    # 1. Create and connect runtime
-    logger.info('Creating and connecting runtime...')
-    runtime = create_runtime(config)
-    await runtime.connect()
-    logger.info('Runtime connected.')
-    event_stream = runtime.event_stream
-
     def on_event(evt: Event) -> None:
         if isinstance(evt, CmdOutputObservation):
             # Log command output observations with truncated content
@@ -210,12 +202,18 @@ async def process_review(
             if len(evt.content) > MAX_LEN:
                 content_preview += '... [truncated]'
             logger.info(
-                f'CmdOutputObservation(command={evt.command}, exit_code={evt.exit_code}, content=\'{content_preview}\')'
+                f"CmdOutputObservation(command={evt.command}, exit_code={evt.exit_code}, content='{content_preview}')"
             )
         else:
             # Log other events normally (might still truncate based on default logger settings)
             logger.info(evt)
 
+    # 1. Create and connect runtime
+    logger.info('Creating and connecting runtime...')
+    runtime = create_runtime(config)
+    await runtime.connect()
+    logger.info('Runtime connected.')
+    event_stream = runtime.event_stream
     if event_stream:
         event_stream.subscribe(EventStreamSubscriber.MAIN, on_event, str(uuid4()))
     else:
@@ -236,7 +234,6 @@ async def process_review(
             config=config,
             initial_user_action=action,
             runtime=runtime,
-            # fake_user_response_fn=codeact_user_response, # Removed for non-interactive review
         )
         if state is None:
             error_message = 'Agent controller did not return a final state.'
@@ -410,7 +407,7 @@ async def process_review(
     finally:
         # Ensure runtime is closed if it was created
         if runtime:
-            runtime.close()  # type: ignore[func-returns-value] # runtime.close() returns None
+            runtime.close()  # Sync close
 
     # Construct the final output
     output = ReviewerOutput(
