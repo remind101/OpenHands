@@ -23,7 +23,7 @@ from openhands.core.main import create_runtime, run_controller
 from openhands.core.schema import (
     AgentState,  # Correct import
 )
-from openhands.events.action import AgentFinishAction, AgentThinkAction, CmdRunAction, MessageAction
+from openhands.events.action import AgentFinishAction, CmdRunAction, MessageAction
 from openhands.events.event import Event  # Added for history typing
 from openhands.events.observation import (
     CmdOutputObservation,
@@ -212,17 +212,8 @@ async def process_review(
             logger.info(
                 f'CmdOutputObservation(command={evt.command}, exit_code={evt.exit_code}, content=\'{content_preview}\')'
             )
-        elif isinstance(evt, AgentThinkAction):
-            # Log full thought
-            logger.info(f'AgentThinkAction(thought="{evt.thought}")')
-        elif isinstance(evt, AgentFinishAction):
-            # Log full finish action details
-            # Note: evt.final_thought corresponds to the 'message' argument of the finish tool
-            logger.info(
-                f'AgentFinishAction(thought="{evt.thought}", final_thought="{evt.final_thought}")'
-            )
         else:
-            # Log other events normally
+            # Log other events normally (might still truncate based on default logger settings)
             logger.info(evt)
 
     if event_stream:
