@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import dataclasses  # Added for serialization
 import json
+import logging
 import os
 import pathlib
 import shutil
@@ -442,6 +443,9 @@ async def review_pr_entrypoint(
 ) -> None:
     issue: Issue | None = None
 
+    # Set log level to DEBUG to capture detailed logs
+    logger.setLevel(logging.DEBUG)
+    logger.debug('Log level set to DEBUG')
     # Setup output directory and log file early to ensure it exists for error logging
     output_file = os.path.join(output_dir, 'output', f'review_output_{pr_number}.jsonl')
     pathlib.Path(os.path.dirname(output_file)).mkdir(parents=True, exist_ok=True)
