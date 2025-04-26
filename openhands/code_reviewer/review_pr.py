@@ -441,6 +441,15 @@ async def review_pr_entrypoint(
     base_domain: str | None = None,
 ) -> None:
     issue: Issue | None = None
+
+    # Setup output directory and log file early to ensure it exists for error logging
+    output_file = os.path.join(output_dir, 'output', f'review_output_{pr_number}.jsonl')
+    pathlib.Path(os.path.dirname(output_file)).mkdir(parents=True, exist_ok=True)
+    log_dir = os.path.join(output_dir, 'infer_logs')
+    pathlib.Path(log_dir).mkdir(parents=True, exist_ok=True)
+    logger.info(f'Using output directory: {output_dir}')
+    logger.info(f'Writing output to {output_file}')
+
     """Review a single pull request.
 
     Args:
@@ -508,14 +517,6 @@ async def review_pr_entrypoint(
                 )
                 # Reset comment_id so the agent doesn't focus on a non-existent comment
                 comment_id = None
-
-        # Setup output directory and log file
-        output_file = os.path.join(output_dir, 'output', 'review_output.jsonl')
-        pathlib.Path(os.path.dirname(output_file)).mkdir(parents=True, exist_ok=True)
-        log_dir = os.path.join(output_dir, 'infer_logs')
-        pathlib.Path(log_dir).mkdir(parents=True, exist_ok=True)
-        logger.info(f'Using output directory: {output_dir}')
-        logger.info(f'Writing output to {output_file}')
 
         # Assume repository is already cloned and checked out to the correct state
         # by the CI/CD workflow in the `output_dir/repo` directory.

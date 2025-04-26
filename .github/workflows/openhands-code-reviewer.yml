@@ -66,6 +66,9 @@ permissions:
 
 jobs:
   auto-review:
+    permissions:
+      contents: read
+      pull-requests: write # Change to 'write' if the bot needs to post comments
     if: |
       github.event_name == 'workflow_call' ||
       (
