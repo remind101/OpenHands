@@ -118,8 +118,8 @@ async def process_review(
     repo_dir: str,
     repo_instruction: str | None = None,
     reset_logger: bool = False,
-    review_level: str = 'file',
-    review_depth: str = 'quick',
+    review_level: str = 'line',  # Default changed to line
+    review_depth: str = 'deep',  # Default changed to deep
 ) -> ReviewerOutput:
     # Setup the logger properly, so you can run multi-processing to parallelize processing
     if reset_logger:
