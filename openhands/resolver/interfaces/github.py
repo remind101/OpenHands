@@ -1,4 +1,5 @@
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from pydantic import SecretStr
@@ -343,6 +344,21 @@ class GithubPRHandler(GithubIssueHandler):
             )
         else:
             self.download_url = f'https://{self.base_domain}/api/v3/repos/{self.owner}/{self.repo}/pulls'
+
+    @staticmethod
+    def parse_pr_url(pr_url: str) -> tuple[str, str, int]:
+        """Parse a GitHub PR URL to extract owner, repo, and PR number."""
+        parsed_url = urlparse(pr_url)
+        path_parts = parsed_url.path.strip('/').split('/')
+        if len(path_parts) < 4 or path_parts[2] != 'pull':
+            raise ValueError(f'Invalid GitHub PR URL format: {pr_url}')
+        owner = path_parts[0]
+        repo = path_parts[1]
+        try:
+            pr_number = int(path_parts[3])
+        except ValueError:
+            raise ValueError(f'Invalid PR number in URL: {pr_url}')
+        return owner, repo, pr_number
 
     def download_pr_metadata(
         self, pull_number: int, comment_id: int | None = None
