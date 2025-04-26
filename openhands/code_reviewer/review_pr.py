@@ -66,7 +66,7 @@ def handle_awaiting_input(
     """Handles the AWAITING_USER_INPUT state by returning a message to finish."""
     logger.info('Agent entered AWAITING_USER_INPUT state. Returning FINISH message.')
     # We instruct the agent to finish, as it should not be waiting for input.
-    return 'FINISH'
+    return 'You should not be waiting for input. Please finalize your review and call the `finish` tool with the JSON list of comments as the `message` argument, as per the instructions.'
 
 
 # Helper for JSON serialization
