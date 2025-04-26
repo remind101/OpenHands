@@ -283,6 +283,9 @@ jobs:
               await exec.exec("pip install -r /tmp/requirements.txt");
             }
 
+      - name: Clean up previous repo clone
+        run: rm -rf /tmp/repo
+
       - name: Attempt to review PR
         env:
           GITHUB_TOKEN: ${{ env.AUTH_TOKEN }}
