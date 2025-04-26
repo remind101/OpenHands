@@ -5,7 +5,7 @@ import json
 import os
 import pathlib
 import shutil
-from typing import List
+from typing import Any, Dict, List
 
 import aiofiles  # type: ignore[import-untyped]
 import httpx
@@ -43,6 +43,7 @@ from openhands.resolver.interfaces.issue import (  # Added IssueHandlerInterface
     IssueHandlerInterface,
 )
 from openhands.resolver.utils import (
+    codeact_user_response,
     get_unique_uid,
     identify_token,
     reset_logger_for_multiprocessing,
@@ -153,6 +154,7 @@ async def process_pr_for_review(
         workspace_mount_path=workspace_base,
         agents={'CodeActAgent': AgentConfig(disabled_microagents=['github'])},
     )
+
     config.set_llm_config(llm_config)
 
     # Prepare the initial prompt/instruction for code review
@@ -167,8 +169,6 @@ async def process_pr_for_review(
         pr_diff = await issue_handler.get_pr_diff(issue.number)  # Added await
     except Exception as e:
         logger.error(f'Failed to get PR diff for PR #{issue.number}: {e}')
-        # Cannot close runtime here as it's not created yet
-        # await runtime.close() # type: ignore[func-returns-value]
         return ReviewerOutput(
             pr_info=issue,
             review_level=review_level,
@@ -191,11 +191,8 @@ async def process_pr_for_review(
 
     images_urls: List[str] = []  # Type hint added
 
-    # Run the agent
-    action = MessageAction(content=instruction, image_urls=images_urls)
-
-    # Initialize variables needed in finally block and for results
-    runtime = None
+    # Initialize variables needed for results
+    runtime = None  # Define runtime here to ensure it's available in finally
     event_stream = None
     original_main_subscribers = {}
     state: State | None = None
@@ -204,38 +201,44 @@ async def process_pr_for_review(
     error_message: str | None = None
     final_agent_state: AgentState | None = None
     agent_history: List[Event] = []
+    agent_metrics: Dict[str, Any] | None = None  # Added from resolve_issue
+
+    # 1. Create and connect runtime
+    logger.info('Creating and connecting runtime...')
+    runtime = create_runtime(config)
+    await runtime.connect()
+    logger.info('Runtime connected.')
+    event_stream = runtime.event_stream
+
+    # 2. Backup and remove MAIN subscribers (temporary fix for EOFError)
+    if event_stream:
+        original_main_subscribers = event_stream._subscribers.get(
+            EventStreamSubscriber.MAIN, {}
+        ).copy()
+        if original_main_subscribers:
+            logger.info(
+                f'Temporarily removing {len(original_main_subscribers)} MAIN subscribers.'
+            )
+            for callback_id in list(original_main_subscribers.keys()):
+                event_stream.unsubscribe(EventStreamSubscriber.MAIN, callback_id)
+    else:
+        logger.warning('Runtime does not have an event_stream attribute.')
+
+    # 3. Initialize runtime (e.g., git config)
+    logger.info('Initializing runtime...')
+    initialize_runtime(runtime, platform)
+    logger.info('Runtime initialized.')
+    # 4. Create initial action and run the agent controller
+    action = MessageAction(content=instruction, image_urls=images_urls)
+    logger.info(f'Starting agent loop with initial action: {action}')
 
     try:
-        # 1. Create and connect runtime
-        logger.info('Creating and connecting runtime...')
-        runtime = create_runtime(config)
-        await runtime.connect()
-        logger.info('Runtime connected.')
-        event_stream = runtime.event_stream
-
-        # 2. Backup and remove MAIN subscribers
-        if event_stream:
-            original_main_subscribers = event_stream._subscribers.get(
-                EventStreamSubscriber.MAIN, {}
-            ).copy()
-            if original_main_subscribers:
-                logger.info(
-                    f'Temporarily removing {len(original_main_subscribers)} MAIN subscribers.'
-                )
-                for callback_id in list(original_main_subscribers.keys()):
-                    event_stream.unsubscribe(EventStreamSubscriber.MAIN, callback_id)
-        else:
-            logger.warning('Runtime does not have an event_stream attribute.')
-
-        # 3. Run the controller
-        logger.info(f'Starting agent loop with initial action: {action}')
         state = await run_controller(
             config=config,
             initial_user_action=action,
             runtime=runtime,
-            # fake_user_response_fn=codeact_user_response, # This is for interactive agents
+            fake_user_response_fn=codeact_user_response,
         )
-        logger.info(f'Agent loop finished. Final state: {state}')
         if state is None:
             error_message = 'Agent controller did not return a final state.'
             logger.error(error_message)
@@ -247,7 +250,6 @@ async def process_pr_for_review(
                 state.metrics.get() if state.metrics else None
             )  # Store metrics
             logger.info(f'Final agent state: {final_agent_state}')
-            success = False  # Initialize success flag
 
             # Check for errors first
             if final_agent_state == AgentState.ERROR:
@@ -259,11 +261,7 @@ async def process_pr_for_review(
                             error_message = f'Agent error: {event.content}'
                             break
                 logger.error(error_message)
-            # For reviewer, AWAITING_USER_INPUT after producing a message is also acceptable
-            elif final_agent_state not in [
-                AgentState.FINISHED,
-                AgentState.AWAITING_USER_INPUT,
-            ]:
+            elif final_agent_state != AgentState.FINISHED:
                 error_message = (
                     f'Agent finished in unexpected state: {final_agent_state}'
                 )
@@ -271,8 +269,8 @@ async def process_pr_for_review(
                     error_message
                 )  # Log as warning, maybe comments were still generated
 
-            # Attempt to extract comments if the agent didn't error out
-            if final_agent_state != AgentState.ERROR and agent_history:
+            # Attempt to extract comments even if agent didn't finish perfectly
+            if agent_history:
                 last_event = agent_history[-1]
                 if (
                     isinstance(last_event, MessageAction)
@@ -367,28 +365,21 @@ async def process_pr_for_review(
                 error_message = 'State history is empty.'
                 logger.error(error_message)
 
-            # Determine final success based on comment extraction and lack of critical errors
-            success = bool(comments) and not error_message
-
             # Final check: if we didn't succeed, ensure there's an error message
             if not success and not error_message:
-                error_message = 'Review generation failed or produced invalid comments.'
+                error_message = 'Review generation failed for an unknown reason.'
                 logger.error(error_message)
 
     except Exception as e:
-        # Catch errors from runtime creation OR agent execution
-        logger.exception(
-            'An exception occurred during runtime setup or agent execution:'
-        )
+        # Catch any other unexpected errors during processing
+        logger.exception('An unexpected exception occurred during agent execution:')
         success = False
         comments = []
-        # Ensure error_message reflects this exception if not already set
-        if not error_message:
-            error_message = f'Error during runtime setup or agent execution: {str(e)}'
-        final_agent_state = AgentState.ERROR
+        error_message = f'Unexpected error during agent execution: {str(e)}'
+        final_agent_state = AgentState.ERROR  # Assume error state
 
     finally:
-        # 5. Restore MAIN subscribers
+        # 6. Restore MAIN subscribers
         if event_stream and original_main_subscribers:
             logger.info(f'Restoring {len(original_main_subscribers)} MAIN subscribers.')
             for callback_id, callback_fn in original_main_subscribers.items():
@@ -397,15 +388,8 @@ async def process_pr_for_review(
                 )
 
         # Ensure runtime is closed if it was created
-        if runtime is not None:
-            try:
-                await runtime.close()  # type: ignore[func-returns-value] # runtime.close() returns None
-            except TypeError:
-                logger.warning(
-                    'TypeError encountered during runtime.close(). Runtime object might be invalid.'
-                )
-            except Exception as close_exc:
-                logger.warning(f'Error during runtime.close(): {close_exc}')
+        if runtime:
+            await runtime.close()  # type: ignore[func-returns-value] # runtime.close() returns None
 
     # Construct the final output
     output = ReviewerOutput(
