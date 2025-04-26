@@ -216,6 +216,7 @@ async def process_pr_for_review(
     agent_history: List[Event] = []
     agent_metrics: Dict[str, Any] | None = None
 
+    logger.info(f'Starting agent loop with initial action: {action}')
     try:
         state = await run_controller(
             config=config,
@@ -223,6 +224,7 @@ async def process_pr_for_review(
             runtime=runtime,
             fake_user_response_fn=codeact_user_response,
         )
+        logger.info(f'Agent loop finished. Final state: {state}')
         if state is None:
             error_message = 'Agent controller did not return a final state.'
             logger.error(error_message)
