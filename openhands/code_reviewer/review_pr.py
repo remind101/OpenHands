@@ -365,7 +365,14 @@ async def process_pr_for_review(
     finally:
         # Ensure runtime is closed if it was created
         if runtime is not None:
-            await runtime.close()  # type: ignore[func-returns-value] # runtime.close() returns None
+            try:
+                await runtime.close()  # type: ignore[func-returns-value] # runtime.close() returns None
+            except TypeError:
+                logger.warning(
+                    'TypeError encountered during runtime.close(). Runtime object might be invalid.'
+                )
+            except Exception as close_exc:
+                logger.warning(f'Error during runtime.close(): {close_exc}')
 
     # Construct the final output
     output = ReviewerOutput(
