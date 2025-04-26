@@ -235,6 +235,7 @@ async def process_pr_for_review(
                 state.metrics.get() if state.metrics else None
             )  # Store metrics
             logger.info(f'Final agent state: {final_agent_state}')
+            success = False  # Initialize success flag
 
             # Check for errors first
             if final_agent_state == AgentState.ERROR:
@@ -246,7 +247,11 @@ async def process_pr_for_review(
                             error_message = f'Agent error: {event.content}'
                             break
                 logger.error(error_message)
-            elif final_agent_state != AgentState.FINISHED:
+            # For reviewer, AWAITING_USER_INPUT after producing a message is also acceptable
+            elif final_agent_state not in [
+                AgentState.FINISHED,
+                AgentState.AWAITING_USER_INPUT,
+            ]:
                 error_message = (
                     f'Agent finished in unexpected state: {final_agent_state}'
                 )
@@ -254,8 +259,8 @@ async def process_pr_for_review(
                     error_message
                 )  # Log as warning, maybe comments were still generated
 
-            # Attempt to extract comments even if agent didn't finish perfectly
-            if agent_history:
+            # Attempt to extract comments if the agent didn't error out
+            if final_agent_state != AgentState.ERROR and agent_history:
                 last_event = agent_history[-1]
                 if (
                     isinstance(last_event, MessageAction)
@@ -350,9 +355,12 @@ async def process_pr_for_review(
                 error_message = 'State history is empty.'
                 logger.error(error_message)
 
+            # Determine final success based on comment extraction and lack of critical errors
+            success = bool(comments) and not error_message
+
             # Final check: if we didn't succeed, ensure there's an error message
             if not success and not error_message:
-                error_message = 'Review generation failed for an unknown reason.'
+                error_message = 'Review generation failed or produced invalid comments.'
                 logger.error(error_message)
 
     except Exception as e:
