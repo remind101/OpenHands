@@ -700,6 +700,12 @@ def main() -> None:
         help='username to access the repository.',
     )
     parser.add_argument(
+        '--llm-temperature',
+        type=float,
+        default=1.0,  # Default to 1.0 as before
+        help='Temperature for the LLM',
+    )
+    parser.add_argument(
         '--base-container-image',
         type=str,
         default=None,
@@ -891,6 +897,7 @@ def main() -> None:
         api_key=SecretStr(api_key) if api_key else None,
         base_url=base_url,
         num_retries=my_args.llm_num_retries,  # Use the argument here
+        temperature=my_args.llm_temperature,  # Use the argument here
     )
 
     # Only set api_version if it was explicitly provided, otherwise let LLMConfig handle it
