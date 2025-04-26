@@ -166,8 +166,21 @@ async def process_pr_for_review(
     )
     config.set_llm_config(llm_config)
 
-    runtime = create_runtime(config)
-    await runtime.connect()
+    runtime = None
+    try:
+        runtime = create_runtime(config)
+        await runtime.connect()
+    except Exception as e:
+        logger.error(f'Failed to create or connect runtime: {e}')
+        return ReviewerOutput(
+            pr_info=issue,
+            review_level=review_level,
+            review_depth=review_depth,
+            instruction='',  # Add default
+            history=[],  # Add default
+            success=False,
+            error=f'Failed to create or connect runtime: {e}',
+        )
 
     # Prepare the initial prompt/instruction for code review
     template = Template(prompt_template)
@@ -178,7 +191,7 @@ async def process_pr_for_review(
             raise AttributeError(
                 f"{type(issue_handler).__name__} does not have method 'get_pr_diff'"
             )
-        pr_diff = issue_handler.get_pr_diff(issue.number)
+        pr_diff = await issue_handler.get_pr_diff(issue.number)  # Added await
     except Exception as e:
         logger.error(f'Failed to get PR diff for PR #{issue.number}: {e}')
         await runtime.close()  # type: ignore[func-returns-value]
@@ -361,8 +374,9 @@ async def process_pr_for_review(
         final_agent_state = AgentState.ERROR  # Assume error state
 
     finally:
-        # Ensure runtime is closed
-        await runtime.close()  # type: ignore[func-returns-value] # runtime.close() returns None
+        # Ensure runtime is closed if it was created
+        if runtime:
+            await runtime.close()  # type: ignore[func-returns-value] # runtime.close() returns None
 
     # Construct the final output
     output = ReviewerOutput(

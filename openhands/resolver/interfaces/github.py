@@ -50,7 +50,7 @@ class GithubIssueHandler(IssueHandlerInterface):
 
     def get_headers(self) -> dict[str, str]:
         return {
-            'Authorization': f'token {self.token.get_secret_value()}',
+            'Authorization': f'token {self.token}',  # Use self.token directly
             'Accept': 'application/vnd.github.v3+json',
             'X-GitHub-Api-Version': '2022-11-28',
         }
@@ -322,7 +322,7 @@ class GithubPRHandler(GithubIssueHandler):
         self,
         owner: str,
         repo: str,
-        token: SecretStr,
+        token: SecretStr,  # Expect SecretStr here
         username: str | None = None,
         base_domain: str = 'github.com',
     ):
@@ -331,11 +331,16 @@ class GithubPRHandler(GithubIssueHandler):
         Args:
             owner: The owner of the repository
             repo: The name of the repository
-            token: The GitHub personal access token
+            token: The GitHub personal access token (as SecretStr)
             username: Optional GitHub username
             base_domain: The domain for GitHub Enterprise (default: "github.com")
         """
-        super().__init__(owner, repo, token, username, base_domain)
+        # Pass the secret value (str) to the superclass __init__ which expects str
+        super().__init__(owner, repo, token.get_secret_value(), username, base_domain)
+        # Assign the SecretStr directly to the subclass attribute
+        self.token = token  # This shadows the superclass's token attribute
+
+        # Update download_url based on potentially shadowed attributes
         if self.base_domain == 'github.com':
             self.download_url = (
                 f'https://api.github.com/repos/{self.owner}/{self.repo}/pulls'
@@ -490,6 +495,28 @@ class GithubPRHandler(GithubIssueHandler):
             thread_ids,
         )
 
+    async def get_pr_diff(self, pr_number: int) -> str:
+        """Get the diff content for a GitHub pull request."""
+        url = f'{self.base_url}/pulls/{pr_number}'
+        headers = self.get_headers()
+        # Use the specific Accept header for diff
+        headers['Accept'] = 'application/vnd.github.v3.diff'
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()  # Raise exception for 4xx/5xx status codes
+                logger.info(f'Successfully fetched diff for GitHub PR #{pr_number}')
+                return response.text
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    f'HTTP error fetching diff for PR #{pr_number}: {e.response.status_code} - {e.response.text}'
+                )
+                raise  # Re-raise the exception after logging
+            except Exception as e:
+                logger.error(f'Error fetching diff for PR #{pr_number}: {e}')
+                raise  # Re-raise other exceptions
+
     async def post_review(self, pr_number: int, comments: list[ReviewComment]) -> None:
         """Post review comments to a GitHub pull request.
 
@@ -498,44 +525,55 @@ class GithubPRHandler(GithubIssueHandler):
             comments: A list of ReviewComment objects.
         """
         review_url = f'{self.base_url}/pulls/{pr_number}/reviews'
+        headers = self.get_headers()  # Use standard headers
+
         api_comments = []
         general_comments = []
-
         for comment in comments:
-            if comment.line is not None:
-                # Line-specific comment
+            if comment.path and comment.line:
                 api_comments.append(
                     {
                         'path': comment.path,
                         'line': comment.line,
                         'body': comment.comment,
-                        # Add side ('LEFT' or 'RIGHT') or start_line if needed by API/desired
                     }
                 )
             else:
-                # General comment (will be added to the main review body)
-                general_comments.append(f'- **{comment.path}**: {comment.comment}')
+                # Collect comments without path/line for the main review body
+                general_comments.append(comment.comment)
 
+        # Construct the main review body
         review_body = 'OpenHands AI Code Review:\n\n'
         if general_comments:
-            review_body += '**General Feedback:**\n' + '\n'.join(general_comments)
-            if api_comments:
-                review_body += '\n\n**Line-Specific Feedback:** (see comments below)'
-        elif api_comments:
+            review_body += (
+                '**General Feedback:**\n'
+                + '\n'.join([f'- {gc}' for gc in general_comments])
+                + '\n\n'
+            )
+        if api_comments:
             review_body += '**Line-Specific Feedback:** (see comments below)'
-        else:
-            pass
 
         review_data = {
-            'body': review_body,
-            'event': 'COMMENT',  # Or 'REQUEST_CHANGES' or 'APPROVE'
+            'body': review_body.strip(),
+            'event': 'COMMENT',  # Post comments without changing PR state
             'comments': api_comments,
         }
 
-        response = httpx.post(review_url, headers=self.headers, json=review_data)  # noqa: ASYNC100
-        response.raise_for_status()
-
-        logger.info(f'Successfully posted review to PR #{pr_number}.')
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    review_url, headers=headers, json=review_data
+                )
+                response.raise_for_status()
+                logger.info(f'Successfully posted review to PR #{pr_number}.')
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    f'Failed to post review to PR #{pr_number}: {e.response.status_code} {e.response.text}'
+                )
+                raise  # Re-raise after logging
+            except Exception as e:
+                logger.error(f'Unexpected error posting review to PR #{pr_number}: {e}')
+                raise  # Re-raise after logging
 
     # Override processing of downloaded issues
     def get_pr_comments(
@@ -578,16 +616,6 @@ class GithubPRHandler(GithubIssueHandler):
             params['page'] += 1
 
         return all_comments if all_comments else None
-
-    def get_pr_diff(self, pr_number: int) -> str:
-        """Get the diff content for a GitHub pull request."""
-        diff_url = f'{self.base_url}/pulls/{pr_number}'
-        diff_headers = self.get_headers()
-        diff_headers['Accept'] = 'application/vnd.github.v3.diff'
-
-        response = httpx.get(diff_url, headers=diff_headers)
-        response.raise_for_status()
-        return response.text
 
     def get_context_from_external_issues_references(
         self,
