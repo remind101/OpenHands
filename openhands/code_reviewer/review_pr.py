@@ -1,6 +1,5 @@
 import argparse
 import asyncio
-import codecs
 import dataclasses  # Added for serialization
 import json
 import os
@@ -296,13 +295,8 @@ async def process_review(
                         f'Agent finished. Attempting to parse review from final_thought: {last_event.final_thought[:200]}...'
                     )
                     try:
-                        unescaped_thought = codecs.decode(
-                            last_event.final_thought, 'unicode_escape'
-                        )
-                        logger.info(
-                            f'Unescaped final_thought: {unescaped_thought[:200]}...'
-                        )  # Log unescaped
-                        parsed_content = json.loads(unescaped_thought)
+                        # Attempt to parse the final_thought directly as JSON
+                        parsed_content = json.loads(last_event.final_thought)
                         if isinstance(parsed_content, list):
                             # Found a list, try to validate it
                             validated_comments = []
@@ -357,7 +351,7 @@ async def process_review(
                                 # It was a list, but contained no valid comments
                                 parse_error = 'Agent finish message was a list but contained no valid comment objects.'
                                 logger.warning(
-                                    f'{parse_error} Unescaped thought snippet: {unescaped_thought[:200]}'
+                                    f'{parse_error} Final thought snippet: {last_event.final_thought[:200]}'
                                 )
 
                         else:
@@ -366,7 +360,7 @@ async def process_review(
                                 'Agent finish message content was not a JSON list.'
                             )
                             logger.warning(
-                                f'{parse_error} Unescaped thought snippet: {unescaped_thought[:200]}'
+                                f'{parse_error} Final thought snippet: {last_event.final_thought[:200]}'
                             )
 
                     except json.JSONDecodeError as e:
@@ -374,12 +368,12 @@ async def process_review(
                             f'Failed to parse agent finish message as JSON: {e}'
                         )
                         logger.warning(
-                            f'{parse_error} Unescaped thought snippet: {unescaped_thought[:200]}'
+                            f'{parse_error} Final thought snippet: {last_event.final_thought[:200]}'
                         )
                     except Exception as e:
                         parse_error = f'Error processing agent finish message: {e}'
                         logger.warning(
-                            f'{parse_error} Unescaped thought snippet: {unescaped_thought[:200]}'
+                            f'{parse_error} Final thought snippet: {last_event.final_thought[:200]}'
                         )
                 else:
                     # Last event was not AgentFinishAction
