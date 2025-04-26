@@ -5,7 +5,7 @@ import dataclasses  # Added for serialization
 import json
 import os
 import shutil
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, cast  # Add Callable, cast
 from uuid import uuid4
 
 import aiofiles  # type: ignore[import-untyped]
@@ -19,12 +19,19 @@ from openhands.code_reviewer.reviewer_output import ReviewComment, ReviewerOutpu
 from openhands.controller.state.state import State  # Added Metrics
 from openhands.core.config import AgentConfig, AppConfig, LLMConfig, SandboxConfig
 from openhands.core.logger import openhands_logger as logger
-from openhands.core.main import create_runtime, run_controller
+from openhands.core.main import FakeUserResponseFunc, create_runtime, run_controller
 from openhands.core.schema import (
     AgentState,  # Correct import
 )
-from openhands.events.action import AgentFinishAction, CmdRunAction, MessageAction
-from openhands.events.event import Event  # Added for history typing
+from openhands.events.action import (
+    Action,  # Import Action
+    AgentFinishAction,
+    CmdRunAction,
+    MessageAction,
+)
+from openhands.events.event import (
+    Event,  # Added for history typing
+)
 from openhands.events.observation import (
     CmdOutputObservation,
     ErrorObservation,  # Added for error checking
@@ -49,6 +56,17 @@ from openhands.resolver.utils import (
 )
 from openhands.runtime.base import Runtime
 from openhands.utils.async_utils import GENERAL_TIMEOUT, call_async_from_sync
+
+
+def handle_awaiting_input(
+    current_state: State,  # Change AgentState to State
+    encapsulate_solution: bool = False,  # Add optional args
+    try_parse: Callable[[Action | None], str] | None = None,  # Add optional args
+) -> str:  # Change return type to str
+    """Handles the AWAITING_USER_INPUT state by returning a message to finish."""
+    logger.info('Agent entered AWAITING_USER_INPUT state. Returning FINISH message.')
+    # We instruct the agent to finish, as it should not be waiting for input.
+    return 'FINISH'
 
 
 # Helper for JSON serialization
@@ -234,6 +252,7 @@ async def process_review(
             config=config,
             initial_user_action=action,
             runtime=runtime,
+            fake_user_response_fn=cast(FakeUserResponseFunc, handle_awaiting_input),
         )
         if state is None:
             error_message = 'Agent controller did not return a final state.'
