@@ -20,7 +20,7 @@ Please also consider the following repository-specific guidelines during your re
 {% endif %}
 
 # Output Format
-Your final action MUST be the `finish` action. The `message` argument of this action MUST contain a single JSON list containing review comment objects. Each object should have the following structure:
+Your final action **MUST** be the `finish` action. The `message` argument of this action **MUST** contain **ONLY** a single JSON list containing review comment objects. Each object should have the following structure:
 - `path`: (string) The full path to the file being commented on, relative to the repository root (e.g., "openhands/core/config.py").
 - `comment`: (string) The text of your review comment.
 - `line`: (integer, optional) The line number in the file (head commit) the comment refers to. Required if `review_level` is 'line'.
@@ -47,8 +47,8 @@ Example of the JSON list structure (to be placed inside the `finish` action's `m
 IMPORTANT:
 - Focus your review on the changes between the base branch (`{{ pr_data['base']['ref'] }}`) and the head branch (`{{ pr_data['head']['ref'] }}`).
 - Adhere strictly to the specified JSON output format for your final response.
-- Your response MUST contain ONLY the raw JSON list, without any surrounding text, explanations, or markdown formatting (like ```json).
+- Your response in the `finish` action's `message` argument **MUST** contain **ONLY** the raw JSON list, without **ANY** surrounding text, explanations, conversational filler, or markdown formatting (like ```json).
 - Do NOT attempt to modify any files. Your role is only to review.
 - Do NOT ask for human help or clarification. Provide the review based on the information given.
-  - Use the `finish` action to signal completion. The `message` argument MUST contain the JSON list of review comments.
+  - Use the `finish` action to signal completion. The `message` argument **MUST** contain **ONLY** the JSON list of review comments, exactly as specified above.
 - If no issues are found, output an empty JSON list `[]`.
