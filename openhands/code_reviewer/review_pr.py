@@ -444,8 +444,8 @@ async def run_review_task(
 
     # Helper function for JSON serialization
     def json_default(obj):
-        if isinstance(obj, Issue):
-            return dataclasses.asdict(obj)  # Convert Issue to dict
+        if dataclasses.is_dataclass(obj):
+            return dataclasses.asdict(obj)  # Convert any dataclass to dict
         if isinstance(obj, SecretStr):
             return obj.get_secret_value()  # Convert SecretStr to str
         raise TypeError(
@@ -471,9 +471,7 @@ async def run_review_task(
             success=False,
             error=f'Failed to fetch PR info: {e}',
         )
-        print(
-            json.dumps(dataclasses.asdict(error_output), indent=2, default=json_default)
-        )
+        print(json.dumps(error_output, indent=2, default=json_default))
         return  # Exit early
 
     # Initialize pr_diff before try block
@@ -504,9 +502,7 @@ async def run_review_task(
             success=False,
             error=f'Failed to checkout PR branch: {e}',
         )
-        print(
-            json.dumps(dataclasses.asdict(error_output), indent=2, default=json_default)
-        )
+        print(json.dumps(error_output, indent=2, default=json_default))
         return  # Exit early
 
     # 6. Read repository instructions if provided
@@ -545,9 +541,7 @@ async def run_review_task(
             success=False,
             error=f'Failed to read prompt template: {e}',
         )
-        print(
-            json.dumps(dataclasses.asdict(error_output), indent=2, default=json_default)
-        )
+        print(json.dumps(error_output, indent=2, default=json_default))
         return  # Exit early
 
     # 8. Fetch PR Diff
@@ -571,9 +565,7 @@ async def run_review_task(
             success=False,
             error=f'Failed to get PR diff: {e}',
         )
-        print(
-            json.dumps(dataclasses.asdict(error_output), indent=2, default=json_default)
-        )
+        print(json.dumps(error_output, indent=2, default=json_default))
         return  # Exit early
 
     # 9. Process the PR using the core logic function
@@ -610,9 +602,7 @@ async def run_review_task(
             success=False,
             error=f'Review processing failed: {e}',
         )
-        print(
-            json.dumps(dataclasses.asdict(error_output), indent=2, default=json_default)
-        )
+        print(json.dumps(error_output, indent=2, default=json_default))
 
 
 def main() -> None:
