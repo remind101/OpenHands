@@ -522,7 +522,7 @@ async def run_review_task(
     if prompt_file is None:
         # Use default prompt if none provided
         prompt_file = os.path.join(
-            os.path.dirname(__file__), 'prompts/review/basic.jinja'
+            os.path.dirname(__file__), 'prompts/review/basic-review.jinja'
         )
         logger.info(f'Using default prompt template: {prompt_file}')
 
