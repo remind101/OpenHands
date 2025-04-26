@@ -139,16 +139,16 @@ jobs:
           # Use the determined auth token for git clone and ls-remote
           GIT_TOKEN: ${{ env.AUTH_TOKEN }}
         run: |
-          echo "Using openhands-ai from remind101/OpenHands@release/stable-with-patches"
+          echo "Using openhands-ai from remind101/OpenHands@feat/code-reviewer-impl"
           # Create a new requirements.txt locally within the workflow
-          echo "git+https://${GIT_TOKEN}@github.com/remind101/OpenHands.git@release/stable-with-patches#egg=openhands-ai" > /tmp/requirements.txt
+          echo "git+https://${GIT_TOKEN}@github.com/remind101/OpenHands.git@feat/code-reviewer-impl#egg=openhands-ai" > /tmp/requirements.txt
           cat /tmp/requirements.txt
 
-          echo "Fetching latest commit SHA for release/stable-with-patches..."
-          SHA=$(git ls-remote https://${GIT_TOKEN}@github.com/remind101/OpenHands.git refs/heads/release/stable-with-patches | awk '{print $1}')
+          echo "Fetching latest commit SHA for feat/code-reviewer-impl..."
+          SHA=$(git ls-remote https://${GIT_TOKEN}@github.com/remind101/OpenHands.git refs/heads/feat/code-reviewer-impl | awk '{print $1}')
           echo "Latest SHA: $SHA"
           if [ -z "$SHA" ]; then
-            echo "Error: Could not retrieve SHA for release/stable-with-patches branch."
+            echo "Error: Could not retrieve SHA for feat/code-reviewer-impl branch."
             exit 1
           fi
           echo "OPENHANDS_BRANCH_SHA=$SHA" >> $GITHUB_ENV
