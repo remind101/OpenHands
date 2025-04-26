@@ -121,12 +121,6 @@ def post_comments(
                 f'{type(pr_handler).__name__} does not have a post_review method.'
             )
             return
-
-        if not review_output.comments:
-            logger.info(
-                f'No comments found in output for PR #{pr_number}. Skipping posting.'
-            )
-            return
         comments_to_post = review_output.comments
         asyncio.run(
             pr_handler.post_review(pr_number=pr_number, comments=comments_to_post)
