@@ -413,6 +413,42 @@ async def process_review(
     return output
 
 
+# Helper function for JSON serialization
+def json_default(obj):
+    if isinstance(obj, BaseModel):  # Handle Pydantic models (including Issue)
+        return obj.model_dump()
+    if dataclasses.is_dataclass(obj):
+        # Handle other dataclasses
+        return dataclasses.asdict(obj)
+    if isinstance(obj, SecretStr):
+        return obj.get_secret_value()  # Convert SecretStr to str
+    # For other types, try converting to string as a fallback
+    try:
+        return str(obj)
+    except Exception:
+        raise TypeError(
+            f'Object of type {obj.__class__.__name__} is not JSON serializable'
+        )
+
+
+def write_output_to_file(output_file: str, output_data: ReviewerOutput):
+    """Writes the ReviewerOutput data to the specified JSONL file."""
+    try:
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        with open(output_file, 'w') as f:
+            json.dump(
+                dataclasses.asdict(output_data), f, indent=2, default=json_default
+            )
+        logger.info(f'Successfully wrote output to {output_file}')
+    except Exception as e:
+        logger.error(f'Failed to write output to {output_file}: {e}')
+        # Fallback: print to stdout if writing fails
+        print(
+            json.dumps(dataclasses.asdict(output_data), indent=2, default=json_default)
+        )
+
+
 async def run_review_task(
     pr_url: str,
     review_level: str,
@@ -421,6 +457,7 @@ async def run_review_task(
     username: str,
     max_iterations: int,
     output_dir: str,  # Keep output_dir for potential future use, though not used for printing
+    output_file: str,
     llm_config: LLMConfig,
     base_container_image: str | None,
     runtime_container_image: str | None,
@@ -466,26 +503,6 @@ async def run_review_task(
         issue_handler, 'get_converted_issues'
     ), f'{type(issue_handler).__name__} lacks get_converted_issues'
 
-    # Helper function for JSON serialization
-    def json_default(obj):
-        if isinstance(obj, BaseModel):  # Handle Pydantic models (including Issue)
-            return obj.model_dump()
-        if dataclasses.is_dataclass(obj):
-            # Handle other dataclasses
-            return dataclasses.asdict(obj)
-        if isinstance(obj, SecretStr):
-            return obj.get_secret_value()  # Convert SecretStr to str
-        # For other types, try converting to string as a fallback
-        try:
-            # Check if it's something like an exception or traceback object
-            if isinstance(obj, BaseException):
-                return f'{type(obj).__name__}: {str(obj)}'
-            # Fallback for other non-serializable types
-            return str(obj)
-        except Exception:
-            # If str() fails, return a placeholder
-            return f'<unserializable object: {type(obj).__name__}>'
-
     try:
         # Fetch full PR details as a dictionary
         pr_data = await issue_handler.get_pr_details(issue_number)
@@ -506,7 +523,7 @@ async def run_review_task(
             success=False,
             error=f'Failed to fetch PR info: {e}',
         )
-        print(json.dumps(error_output, indent=2, default=json_default))
+        write_output_to_file(output_file, error_output)
         return  # Exit early
 
     # 4. Setup repository directory
@@ -573,7 +590,7 @@ async def run_review_task(
             success=False,
             error=f'Failed to read prompt template: {e}',
         )
-        print(json.dumps(error_output, indent=2, default=json_default))
+        write_output_to_file(output_file, error_output)
         return  # Exit early
 
     # 9. Process the PR using the core logic function
@@ -597,8 +614,8 @@ async def run_review_task(
             review_level=review_level,
             review_depth=review_depth,
         )
-        # Print the final output
-        print(json.dumps(dataclasses.asdict(output), indent=2, default=json_default))
+        # Write the final output to file
+        write_output_to_file(output_file, output)
         logger.info('Review task completed successfully.')
 
     except Exception as e:
@@ -613,7 +630,7 @@ async def run_review_task(
             success=False,
             error=f'Review processing failed: {e}',
         )
-        print(json.dumps(error_output, indent=2, default=json_default))
+        write_output_to_file(output_file, error_output)
 
 
 def main() -> None:
@@ -629,6 +646,12 @@ def main() -> None:
         type=str,
         required=True,
         help='repository to review PRs in form of `owner/repo`.',
+    )
+    parser.add_argument(
+        '--output-file',
+        type=str,
+        required=True,
+        help='Path to the output JSONL file.',
     )
     parser.add_argument(
         '--token',
@@ -868,6 +891,7 @@ def main() -> None:
             username=username,
             max_iterations=my_args.max_iterations,
             output_dir=my_args.output_dir,
+            output_file=my_args.output_file,
             llm_config=llm_config,
             base_container_image=base_container_image,
             runtime_container_image=runtime_container_image,

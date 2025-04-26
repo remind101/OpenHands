@@ -363,7 +363,6 @@ jobs:
           python -m openhands.code_reviewer.post_review_comments \
             --output-file ./output/review_output_${{ env.PR_NUMBER }}.jsonl \
             --selected-repo ${{ github.repository }} \
-            --pr-number ${{ env.PR_NUMBER }} \
-            --review-success ${{ env.REVIEW_SUCCESS }}
+            --pr-number ${{ env.PR_NUMBER }}
 
       # The post_review_comments script handles success/failure reporting.
