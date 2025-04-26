@@ -212,6 +212,15 @@ async def process_review(
             logger.info(
                 f'CmdOutputObservation(command={evt.command}, exit_code={evt.exit_code}, content=\'{content_preview}\')'
             )
+        elif isinstance(evt, AgentThinkAction):
+            # Log full thought
+            logger.info(f'AgentThinkAction(thought="{evt.thought}")')
+        elif isinstance(evt, AgentFinishAction):
+            # Log full finish action details
+            # Note: evt.final_thought corresponds to the 'message' argument of the finish tool
+            logger.info(
+                f'AgentFinishAction(thought="{evt.thought}", final_thought="{evt.final_thought}")'
+            )
         else:
             # Log other events normally
             logger.info(evt)
