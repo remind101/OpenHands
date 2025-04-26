@@ -392,7 +392,7 @@ async def process_review(
     finally:
         # Ensure runtime is closed if it was created
         if runtime:
-            await runtime.close()  # type: ignore[func-returns-value] # runtime.close() returns None
+            runtime.close()  # type: ignore[func-returns-value] # runtime.close() returns None
 
     # Construct the final output
     output = ReviewerOutput(
