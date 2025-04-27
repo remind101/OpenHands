@@ -650,42 +650,7 @@ async def run_review_task(
             review_depth=review_depth,
         )
 
-        # Check if the first attempt failed and might benefit from a retry with higher temperature
-        # We retry if it wasn't successful AND the agent didn't finish cleanly (e.g., ERROR or RUNNING/INIT)
-        # AgentState.STOPPED might indicate a deliberate stop, so we don't retry then.
-        # AgentState.AWAITING_USER_INPUT should be handled by fake_user_response_fn, but check just in case.
-        needs_retry = not output.success and output.final_agent_state in [
-            AgentState.ERROR,
-            AgentState.RUNNING,
-            AgentState.LOADING,
-            AgentState.AWAITING_USER_INPUT,
-        ]
-
-        if needs_retry:
-            logger.warning(
-                f'Initial review attempt failed or did not complete cleanly (State: {output.final_agent_state}). Retrying with temperature=2.0.'
-            )
-            # Create a new LLMConfig for the retry, inheriting settings but changing temperature
-            retry_llm_config = dataclasses.replace(llm_config, temperature=2.0)
-
-            # Call process_review again with the retry config
-            output = await process_review(
-                pr_data=pr_data,
-                platform=platform,
-                max_iterations=max_iterations,
-                llm_config=retry_llm_config,  # Use retry config
-                output_dir=output_dir,
-                base_container_image=base_container_image,
-                runtime_container_image=runtime_container_image,
-                prompt_template=prompt_template,
-                repo_dir=repo_dir,
-                repo_instruction=repo_instruction,
-                reset_logger=False,
-                review_level=review_level,
-                review_depth=review_depth,
-            )
-
-        # Write the final output (either from first attempt or retry) to file
+        # Write the final output to file
         write_output_to_file(output_file, output)
         if output.success:
             logger.info('Review task completed successfully.')
