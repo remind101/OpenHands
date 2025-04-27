@@ -632,10 +632,12 @@ class GithubPRHandler(GithubIssueHandler):
         self, diff: str, file_path: str, head_line: int
     ) -> int | None:
         """Maps a line number in the head commit file to its position in the unified diff."""
+        logger.debug(f'Attempting to map {file_path}:{head_line} to diff position.')
         position = 0
         current_file_path = None
         head_line_counter = 0
         in_target_file_hunk = False
+        found_target_file = False
 
         lines = diff.splitlines()
         for line_content in lines:
@@ -644,26 +646,36 @@ class GithubPRHandler(GithubIssueHandler):
                 # Reset for new file
                 current_file_path = None
                 in_target_file_hunk = False
+                found_target_file = False  # Reset flag for next file
             elif line_content.startswith('+++ b/'):
                 current_file_path = line_content[6:]
-                # Check if this is the file we are looking for
                 if current_file_path == file_path:
+                    logger.debug(f'Found target file header: {line_content}')
                     # Reset head line counter for the start of the file's diff
                     head_line_counter = 0
                     in_target_file_hunk = False  # Wait for the first hunk header
+                    found_target_file = True
                 else:
-                    current_file_path = None  # Not the target file
+                    # Not the target file, clear current_file_path to avoid processing its hunks
+                    current_file_path = None
+                    found_target_file = False
 
-            elif current_file_path == file_path:
+            elif (
+                found_target_file
+            ):  # Process only if we are inside the target file's diff section
                 if line_content.startswith('@@'):
                     # Parse hunk header like @@ -l,s +l,s @@
                     parts = line_content.split(' ')
+                    logger.debug(f'Processing hunk header: {line_content}')
                     if len(parts) > 2 and parts[2].startswith('+'):
                         try:
                             new_start_line = int(parts[2].split(',')[0][1:])
                             # Set the counter to the line number *before* the hunk starts
                             head_line_counter = new_start_line - 1
                             in_target_file_hunk = True
+                            logger.debug(
+                                f'Parsed new_start_line={new_start_line}, head_line_counter reset to {head_line_counter}'
+                            )
                         except (ValueError, IndexError):
                             logger.warning(
                                 f'Could not parse start line from hunk header: {line_content}'
@@ -672,8 +684,9 @@ class GithubPRHandler(GithubIssueHandler):
                                 False  # Stop processing until next valid header
                             )
                     else:
-                        # Malformed hunk header? Log or handle error
-                        logger.warning(f'Could not parse hunk header: {line_content}')
+                        logger.warning(
+                            f'Could not parse hunk header format: {line_content}'
+                        )
                         in_target_file_hunk = (
                             False  # Stop processing until next valid header
                         )
@@ -681,12 +694,17 @@ class GithubPRHandler(GithubIssueHandler):
                     # Process lines within a hunk of the target file
                     if line_content.startswith('+') or line_content.startswith(' '):
                         head_line_counter += 1
+                        # logger.debug(f"  Line: {line_content[:30]}... | head_line_counter = {head_line_counter}") # Optional: very verbose
                         if head_line_counter == head_line:
-                            # Found the target line in the head commit context within the diff
+                            logger.debug(
+                                f'Found match for {file_path}:{head_line} at position {position}'
+                            )
                             return position
                     # Ignore '-' lines for head_line_counter
 
-        logger.warning(f'Could not find position for {file_path}:{head_line} in diff.')
+        logger.warning(
+            f'Could not find position for {file_path}:{head_line} in diff. Reached end of diff.'
+        )
         return None
 
     async def post_review(self, pr_number: int, comments: list[ReviewComment]) -> None:
