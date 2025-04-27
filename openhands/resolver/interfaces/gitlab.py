@@ -3,6 +3,7 @@ from urllib.parse import quote
 
 import httpx
 
+from openhands.code_reviewer.reviewer_output import ReviewComment
 from openhands.core.logger import openhands_logger as logger
 from openhands.resolver.interfaces.issue import (
     Issue,
@@ -19,7 +20,7 @@ class GitlabIssueHandler(IssueHandlerInterface):
         repo: str,
         token: str,
         username: str | None = None,
-        base_domain: str = 'gitlab.com',
+        base_domain: str | None = 'gitlab.com',
     ):
         """Initialize a GitLab issue handler.
 
@@ -319,7 +320,7 @@ class GitlabPRHandler(GitlabIssueHandler):
         repo: str,
         token: str,
         username: str | None = None,
-        base_domain: str = 'gitlab.com',
+        base_domain: str | None = 'gitlab.com',
     ):
         """Initialize a GitLab PR handler.
 
@@ -609,3 +610,113 @@ class GitlabPRHandler(GitlabIssueHandler):
             converted_issues.append(issue_details)
 
         return converted_issues
+
+    async def post_review(self, pr_number: int, comments: list[ReviewComment]) -> None:
+        """Post review comments to a GitLab merge request."""
+        if not comments:
+            logger.info(f'No comments to post for MR #{pr_number}.')
+            return
+
+        mr_details_url = f'{self.base_url}/merge_requests/{pr_number}'
+        discussions_url = f'{self.base_url}/merge_requests/{pr_number}/discussions'
+        mr_details = None
+
+        async with httpx.AsyncClient() as client:
+            # Fetch MR details asynchronously
+            try:
+                response = await client.get(mr_details_url, headers=self.headers)
+                response.raise_for_status()
+                mr_details = response.json()
+                # Basic validation (remains the same)
+                if (
+                    not isinstance(mr_details, dict)
+                    or not all(
+                        k in mr_details
+                        for k in ['diff_refs', 'target_project_id', 'iid']
+                    )
+                    or not isinstance(mr_details.get('diff_refs'), dict)
+                    or not all(
+                        k in mr_details['diff_refs']
+                        for k in ['base_sha', 'start_sha', 'head_sha']
+                    )
+                ):
+                    logger.error(
+                        f'Missing or invalid required fields in MR details response for MR #{pr_number}. Cannot post positional comments.'
+                    )
+                    mr_details = None
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    f'HTTP error fetching MR details for MR #{pr_number}: {e.response.status_code} - {e.response.text}'
+                )
+                # Decide if we should proceed without details or raise
+            except Exception as e:
+                logger.error(f'Error fetching MR details for MR #{pr_number}: {e}')
+                # Decide if we should proceed without details or raise
+
+            # Post comments asynchronously
+            for comment in comments:
+                payload: dict[str, Any] = {'body': comment.comment}
+                if comment.path and comment.line and mr_details:
+                    payload['position'] = {
+                        'position_type': 'text',
+                        'base_sha': mr_details['diff_refs']['base_sha'],
+                        'start_sha': mr_details['diff_refs']['start_sha'],
+                        'head_sha': mr_details['diff_refs']['head_sha'],
+                        'new_path': comment.path,
+                        'new_line': comment.line,
+                    }
+                elif comment.path or comment.line:
+                    logger.warning(
+                        f'Cannot add position for comment on MR #{pr_number} due to missing MR details or path/line: {comment}'
+                    )
+
+                try:
+                    response = await client.post(
+                        discussions_url, headers=self.headers, json=payload
+                    )
+                    # Check status code (201 Created)
+                    if response.status_code == 201:
+                        logger.info(
+                            f'Successfully posted comment to MR #{pr_number}: {comment.comment[:50]}...'
+                        )
+                    else:
+                        logger.error(
+                            f'Failed to post comment to MR #{pr_number}. Status: {response.status_code}, Response: {response.text}, Payload: {payload}'
+                        )
+                        # Consider raising based on status code
+                        # response.raise_for_status() # Optionally raise for non-201?
+                except httpx.RequestError as e:
+                    logger.error(
+                        f'Network error posting comment to MR #{pr_number}: {e}, Payload: {payload}'
+                    )
+                    # Consider raising
+                except Exception as e:
+                    logger.error(
+                        f'Unexpected error posting comment to MR #{pr_number}: {e}, Payload: {payload}'
+                    )
+                    # Consider raising
+
+    async def get_pr_diff(self, pr_number: int) -> str:
+        """Get the diff content for a GitLab merge request."""
+        url = f'{self.base_url}/merge_requests/{pr_number}/diffs'
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, headers=self.headers)
+                response.raise_for_status()
+                diffs = response.json()
+                if isinstance(diffs, list) and len(diffs) > 0 and 'diff' in diffs[0]:
+                    logger.info(f'Successfully fetched diff for GitLab MR #{pr_number}')
+                    return diffs[0]['diff']
+                else:
+                    logger.warning(
+                        f'Could not extract diff from response for MR #{pr_number}. Response: {diffs}'
+                    )
+                    return ''
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    f'HTTP error fetching diff for MR #{pr_number}: {e.response.status_code} - {e.response.text}'
+                )
+                raise  # Re-raise after logging
+            except Exception as e:
+                logger.error(f'Error fetching diff for MR #{pr_number}: {e}')
+                raise  # Re-raise after logging

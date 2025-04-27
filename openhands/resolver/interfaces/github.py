@@ -1,8 +1,16 @@
+import asyncio
+import logging
+import os
+import shutil
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
+from pydantic import SecretStr
 
-from openhands.core.logger import openhands_logger as logger
+from openhands.code_reviewer.reviewer_output import (
+    ReviewComment,  # Added for type hinting in post_review
+)
 from openhands.resolver.interfaces.issue import (
     Issue,
     IssueHandlerInterface,
@@ -10,8 +18,12 @@ from openhands.resolver.interfaces.issue import (
 )
 from openhands.resolver.utils import extract_issue_references
 
+logger = logging.getLogger(__name__)
+
 
 class GithubIssueHandler(IssueHandlerInterface):
+    token: SecretStr
+
     def __init__(
         self,
         owner: str,
@@ -32,6 +44,7 @@ class GithubIssueHandler(IssueHandlerInterface):
         self.owner = owner
         self.repo = repo
         self.token = token
+
         self.username = username
         self.base_domain = base_domain
         self.base_url = self.get_base_url()
@@ -44,8 +57,9 @@ class GithubIssueHandler(IssueHandlerInterface):
 
     def get_headers(self) -> dict[str, str]:
         return {
-            'Authorization': f'token {self.token}',
+            'Authorization': f'token {self.token}',  # Use self.token directly
             'Accept': 'application/vnd.github.v3+json',
+            'X-GitHub-Api-Version': '2022-11-28',
         }
 
     def get_base_url(self) -> str:
@@ -313,7 +327,7 @@ class GithubPRHandler(GithubIssueHandler):
         self,
         owner: str,
         repo: str,
-        token: str,
+        token: str,  # Expect str here
         username: str | None = None,
         base_domain: str = 'github.com',
     ):
@@ -322,17 +336,104 @@ class GithubPRHandler(GithubIssueHandler):
         Args:
             owner: The owner of the repository
             repo: The name of the repository
-            token: The GitHub personal access token
+            token: The GitHub personal access token (as str)
             username: Optional GitHub username
             base_domain: The domain for GitHub Enterprise (default: "github.com")
         """
+        # Pass the token (str) directly to the superclass __init__
         super().__init__(owner, repo, token, username, base_domain)
+
+        # Update download_url based on potentially shadowed attributes
         if self.base_domain == 'github.com':
             self.download_url = (
                 f'https://api.github.com/repos/{self.owner}/{self.repo}/pulls'
             )
         else:
             self.download_url = f'https://{self.base_domain}/api/v3/repos/{self.owner}/{self.repo}/pulls'
+
+    @staticmethod
+    def parse_pr_url(pr_url: str) -> tuple[str, str, int]:
+        """Parse a GitHub PR URL to extract owner, repo, and PR number."""
+        parsed_url = urlparse(pr_url)
+        path_parts = parsed_url.path.strip('/').split('/')
+        if len(path_parts) < 4 or path_parts[2] != 'pull':
+            raise ValueError(f'Invalid GitHub PR URL format: {pr_url}')
+        owner = path_parts[0]
+        repo = path_parts[1]
+        try:
+            pr_number = int(path_parts[3])
+        except ValueError:
+            raise ValueError(f'Invalid PR number in URL: {pr_url}')
+        return owner, repo, pr_number
+
+    async def _run_git_command(self, command: list[str], cwd: str) -> tuple[str, str]:
+        """Run a git command asynchronously and return stdout and stderr."""
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+        )
+        stdout, stderr = await process.communicate()
+        if process.returncode != 0:
+            raise RuntimeError(
+                f'Git command failed: {" ".join(command)}\nStderr: {stderr.decode()}'
+            )
+        return stdout.decode(), stderr.decode()
+
+    async def checkout_pr(self, pr_number: int, repo_dir: str):
+        """Checkout the specific PR branch into the specified directory."""
+        logger.info(f'Checking out PR #{pr_number} to {repo_dir}')
+
+        # Ensure repo_dir exists and is empty or remove it
+        if os.path.exists(repo_dir):
+            if os.listdir(repo_dir):
+                logger.warning(f'Directory {repo_dir} is not empty. Removing it.')
+                shutil.rmtree(repo_dir)
+                os.makedirs(repo_dir)
+        else:
+            os.makedirs(repo_dir)
+
+        # Fetch PR details from GitHub API
+        pr_api_url = f'{self.base_url}/pulls/{pr_number}'
+        async with httpx.AsyncClient() as client:
+            response = await client.get(pr_api_url, headers=self.headers)
+            response.raise_for_status()
+            pr_data = response.json()
+
+        head_sha = pr_data['head']['sha']
+        clone_url = self.get_clone_url()
+        pr_ref = f'pull/{pr_number}/head'
+
+        logger.info(f'Cloning {self.owner}/{self.repo} into {repo_dir}')
+        await self._run_git_command(['git', 'clone', clone_url, '.'], cwd=repo_dir)
+
+        logger.info(f'Fetching PR ref: {pr_ref}')
+        await self._run_git_command(
+            ['git', 'fetch', 'origin', f'{pr_ref}:{pr_ref}'], cwd=repo_dir
+        )
+
+        logger.info(f'Checking out PR ref: {pr_ref}')
+        await self._run_git_command(['git', 'checkout', pr_ref], cwd=repo_dir)
+
+        logger.info(f'Resetting to head SHA: {head_sha}')
+        await self._run_git_command(['git', 'reset', '--hard', head_sha], cwd=repo_dir)
+
+        logger.info(f'Successfully checked out PR #{pr_number} at commit {head_sha}')
+
+    async def get_pr_details(self, pr_number: int) -> dict[str, Any]:
+        """Fetch full details for a specific Pull Request using the REST API."""
+        pr_api_url = f'{self.base_url}/pulls/{pr_number}'
+        logger.info(f'Fetching PR details from: {pr_api_url}')
+        async with httpx.AsyncClient() as client:
+            response = await client.get(pr_api_url, headers=self.headers)
+            response.raise_for_status()  # Raise an exception for bad status codes
+            pr_data = response.json()
+            logger.info(f'Successfully fetched details for PR #{pr_number}')
+            # Add owner and repo explicitly, as they might not be in the direct response
+            pr_data['owner'] = self.owner
+            pr_data['repo'] = self.repo
+            return pr_data
 
     def download_pr_metadata(
         self, pull_number: int, comment_id: int | None = None
@@ -480,6 +581,217 @@ class GithubPRHandler(GithubIssueHandler):
             review_threads,
             thread_ids,
         )
+
+    async def get_pr_diff(self, pr_number: int) -> str:
+        """Get the diff content for a GitHub pull request."""
+        url = f'{self.base_url}/pulls/{pr_number}'
+        headers = self.get_headers()
+        # Use the specific Accept header for diff
+        headers['Accept'] = 'application/vnd.github.v3.diff'
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()  # Raise exception for 4xx/5xx status codes
+                logger.info(f'Successfully fetched diff for GitHub PR #{pr_number}')
+                return response.text
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    f'HTTP error fetching diff for PR #{pr_number}: {e.response.status_code} - {e.response.text}'
+                )
+                raise  # Re-raise the exception after logging
+            except Exception as e:
+                logger.error(f'Error fetching diff for PR #{pr_number}: {e}')
+                raise  # Re-raise other exceptions
+
+    async def get_pr_head_commit(self, pr_number: int) -> str:
+        """Get the SHA of the head commit of a GitHub pull request."""
+        pr_url = f'{self.base_url}/pulls/{pr_number}'
+        headers = self.get_headers()
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(pr_url, headers=headers)
+                response.raise_for_status()
+                pr_data = response.json()
+                head_commit_sha = pr_data.get('head', {}).get('sha')
+                if not head_commit_sha:
+                    raise ValueError(
+                        f'Could not extract head commit SHA from PR data for PR #{pr_number}'
+                    )
+                return head_commit_sha
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    f'HTTP error fetching PR details for PR #{pr_number}: {e.response.status_code} - {e.response.text}'
+                )
+                raise
+            except Exception as e:
+                logger.error(f'Error fetching PR details for PR #{pr_number}: {e}')
+                raise
+
+    def _map_line_to_position(
+        self, diff: str, file_path: str, head_line: int
+    ) -> int | None:
+        """Maps a line number in the head commit file to its position in the unified diff."""
+        logger.debug(f'Attempting to map {file_path}:{head_line} to diff position.')
+        position = 0
+        current_file_path = None
+        head_line_counter = 0
+        in_target_file_hunk = False
+        found_target_file = False
+
+        lines = diff.splitlines()
+        for line_content in lines:
+            position += 1
+            if line_content.startswith('diff --git'):
+                # Reset for new file
+                current_file_path = None
+                in_target_file_hunk = False
+                found_target_file = False  # Reset flag for next file
+            elif line_content.startswith('+++ b/'):
+                current_file_path = line_content[6:]
+                if current_file_path == file_path:
+                    logger.debug(f'Found target file header: {line_content}')
+                    # Reset head line counter for the start of the file's diff
+                    head_line_counter = 0
+                    in_target_file_hunk = False  # Wait for the first hunk header
+                    found_target_file = True
+                else:
+                    # Not the target file, clear current_file_path to avoid processing its hunks
+                    current_file_path = None
+                    found_target_file = False
+
+            elif (
+                found_target_file
+            ):  # Process only if we are inside the target file's diff section
+                if line_content.startswith('@@'):
+                    # Parse hunk header like @@ -l,s +l,s @@
+                    parts = line_content.split(' ')
+                    logger.debug(f'Processing hunk header: {line_content}')
+                    if len(parts) > 2 and parts[2].startswith('+'):
+                        try:
+                            new_start_line = int(parts[2].split(',')[0][1:])
+                            # Set the counter to the line number *before* the hunk starts
+                            head_line_counter = new_start_line - 1
+                            in_target_file_hunk = True
+                            logger.debug(
+                                f'Parsed new_start_line={new_start_line}, head_line_counter reset to {head_line_counter}'
+                            )
+                        except (ValueError, IndexError):
+                            logger.warning(
+                                f'Could not parse start line from hunk header: {line_content}'
+                            )
+                            in_target_file_hunk = (
+                                False  # Stop processing until next valid header
+                            )
+                    else:
+                        logger.warning(
+                            f'Could not parse hunk header format: {line_content}'
+                        )
+                        in_target_file_hunk = (
+                            False  # Stop processing until next valid header
+                        )
+                elif in_target_file_hunk:
+                    # Process lines within a hunk of the target file
+                    if line_content.startswith('+') or line_content.startswith(' '):
+                        head_line_counter += 1
+                        # logger.debug(f"  Line: {line_content[:30]}... | head_line_counter = {head_line_counter}") # Optional: very verbose
+                        if head_line_counter == head_line:
+                            logger.debug(
+                                f'Found match for {file_path}:{head_line} at position {position}'
+                            )
+                            return position
+                    # Ignore '-' lines for head_line_counter
+
+        logger.warning(
+            f'Could not find position for {file_path}:{head_line} in diff. Reached end of diff.'
+        )
+        return None
+
+    async def post_review(self, pr_number: int, comments: list[ReviewComment]) -> None:
+        """Post review comments to a GitHub pull request.
+
+        Args:
+            pr_number: The number of the pull request.
+            comments: A list of ReviewComment objects.
+        """
+        review_url = f'{self.base_url}/pulls/{pr_number}/reviews'
+        headers = self.get_headers()  # Use standard headers
+        # Fetch the diff first
+        try:
+            diff = await self.get_pr_diff(pr_number)
+            head_commit_sha = await self.get_pr_head_commit(
+                pr_number
+            )  # Also get head commit SHA
+        except Exception as e:
+            logger.error(
+                f'Failed to fetch diff or head commit for PR #{pr_number} before posting review: {e}'
+            )
+            # Decide how to handle: raise, post general comment, or try posting without positions?
+            # For now, let's raise to make the failure explicit.
+            raise RuntimeError(
+                f'Could not fetch diff or head commit for PR #{pr_number}'
+            ) from e
+
+        api_comments = []
+        general_comments = []
+        for comment in comments:
+            if comment.path and comment.line:
+                # Map head commit line number to diff position
+                position = self._map_line_to_position(diff, comment.path, comment.line)
+                if position:
+                    api_comments.append(
+                        {
+                            'path': comment.path,
+                            'position': position,  # Use position instead of line
+                            'body': comment.comment,
+                        }
+                    )
+                else:
+                    # Could not map line to position, post as general comment
+                    logger.warning(
+                        f'Could not map {comment.path}:{comment.line} to diff position. Adding as general comment.'
+                    )
+                    general_comments.append(
+                        f'(Unpositioned) {comment.path}:{comment.line}: {comment.comment}'
+                    )
+            else:
+                # Collect comments without path/line for the main review body
+                general_comments.append(comment.comment)
+
+        # Construct the main review body
+        review_body = 'OpenHands AI Code Review:\\n\\n'
+        if general_comments:
+            review_body += (
+                '**General Feedback / Unpositioned Comments:**\\n'  # Updated title
+                + '\\n'.join([f'- {gc}' for gc in general_comments])
+                + '\\n\\n'
+            )
+        if api_comments:  # Check if there are any positioned comments left
+            review_body += '**Line-Specific Feedback:** (see comments below)'
+        # If only general comments exist, the line-specific part is omitted.
+
+        review_data = {
+            'body': review_body.strip(),
+            'event': 'COMMENT',  # Post comments without changing PR state
+            'comments': api_comments,  # This now contains comments with 'position'
+            'commit_id': head_commit_sha,  # commit_id is recommended when using position
+        }
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    review_url, headers=headers, json=review_data
+                )
+                response.raise_for_status()
+                logger.info(f'Successfully posted review to PR #{pr_number}.')
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    f'Failed to post review to PR #{pr_number}: {e.response.status_code} {e.response.text}'
+                )
+                raise  # Re-raise after logging
+            except Exception as e:
+                logger.error(f'Unexpected error posting review to PR #{pr_number}: {e}')
+                raise  # Re-raise after logging
 
     # Override processing of downloaded issues
     def get_pr_comments(

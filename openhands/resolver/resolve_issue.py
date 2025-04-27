@@ -161,7 +161,7 @@ async def complete_runtime(
     return {'git_patch': git_patch}
 
 
-async def process_issue(
+async def process_resolve(
     issue: Issue,
     platform: ProviderType,
     base_commit: str,
@@ -354,7 +354,7 @@ def issue_handler_factory(
         raise ValueError(f'Invalid issue type: {issue_type}')
 
 
-async def resolve_issue(
+async def run_resolve_task(
     owner: str,
     repo: str,
     token: str,
@@ -522,7 +522,7 @@ async def resolve_issue(
                 .strip()
             )
 
-        output = await process_issue(
+        output = await process_resolve(
             issue,
             platform,
             base_commit,
@@ -772,7 +772,7 @@ def main() -> None:
         prompt_template = f.read()
 
     asyncio.run(
-        resolve_issue(
+        run_resolve_task(
             owner=owner,
             repo=repo,
             token=token,
