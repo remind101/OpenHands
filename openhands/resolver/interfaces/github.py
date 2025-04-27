@@ -604,6 +604,91 @@ class GithubPRHandler(GithubIssueHandler):
                 logger.error(f'Error fetching diff for PR #{pr_number}: {e}')
                 raise  # Re-raise other exceptions
 
+    async def get_pr_head_commit(self, pr_number: int) -> str:
+        """Get the SHA of the head commit of a GitHub pull request."""
+        pr_url = f'{self.base_url}/pulls/{pr_number}'
+        headers = self.get_headers()
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(pr_url, headers=headers)
+                response.raise_for_status()
+                pr_data = response.json()
+                head_commit_sha = pr_data.get('head', {}).get('sha')
+                if not head_commit_sha:
+                    raise ValueError(
+                        f'Could not extract head commit SHA from PR data for PR #{pr_number}'
+                    )
+                return head_commit_sha
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    f'HTTP error fetching PR details for PR #{pr_number}: {e.response.status_code} - {e.response.text}'
+                )
+                raise
+            except Exception as e:
+                logger.error(f'Error fetching PR details for PR #{pr_number}: {e}')
+                raise
+
+    def _map_line_to_position(
+        self, diff: str, file_path: str, head_line: int
+    ) -> int | None:
+        """Maps a line number in the head commit file to its position in the unified diff."""
+        position = 0
+        current_file_path = None
+        head_line_counter = 0
+        in_target_file_hunk = False
+
+        lines = diff.splitlines()
+        for line_content in lines:
+            position += 1
+            if line_content.startswith('diff --git'):
+                # Reset for new file
+                current_file_path = None
+                in_target_file_hunk = False
+            elif line_content.startswith('+++ b/'):
+                current_file_path = line_content[6:]
+                # Check if this is the file we are looking for
+                if current_file_path == file_path:
+                    # Reset head line counter for the start of the file's diff
+                    head_line_counter = 0
+                    in_target_file_hunk = False  # Wait for the first hunk header
+                else:
+                    current_file_path = None  # Not the target file
+
+            elif current_file_path == file_path:
+                if line_content.startswith('@@'):
+                    # Parse hunk header like @@ -l,s +l,s @@
+                    parts = line_content.split(' ')
+                    if len(parts) > 2 and parts[2].startswith('+'):
+                        try:
+                            new_start_line = int(parts[2].split(',')[0][1:])
+                            # Set the counter to the line number *before* the hunk starts
+                            head_line_counter = new_start_line - 1
+                            in_target_file_hunk = True
+                        except (ValueError, IndexError):
+                            logger.warning(
+                                f'Could not parse start line from hunk header: {line_content}'
+                            )
+                            in_target_file_hunk = (
+                                False  # Stop processing until next valid header
+                            )
+                    else:
+                        # Malformed hunk header? Log or handle error
+                        logger.warning(f'Could not parse hunk header: {line_content}')
+                        in_target_file_hunk = (
+                            False  # Stop processing until next valid header
+                        )
+                elif in_target_file_hunk:
+                    # Process lines within a hunk of the target file
+                    if line_content.startswith('+') or line_content.startswith(' '):
+                        head_line_counter += 1
+                        if head_line_counter == head_line:
+                            # Found the target line in the head commit context within the diff
+                            return position
+                    # Ignore '-' lines for head_line_counter
+
+        logger.warning(f'Could not find position for {file_path}:{head_line} in diff.')
+        return None
+
     async def post_review(self, pr_number: int, comments: list[ReviewComment]) -> None:
         """Post review comments to a GitHub pull request.
 
@@ -613,37 +698,65 @@ class GithubPRHandler(GithubIssueHandler):
         """
         review_url = f'{self.base_url}/pulls/{pr_number}/reviews'
         headers = self.get_headers()  # Use standard headers
+        # Fetch the diff first
+        try:
+            diff = await self.get_pr_diff(pr_number)
+            head_commit_sha = await self.get_pr_head_commit(
+                pr_number
+            )  # Also get head commit SHA
+        except Exception as e:
+            logger.error(
+                f'Failed to fetch diff or head commit for PR #{pr_number} before posting review: {e}'
+            )
+            # Decide how to handle: raise, post general comment, or try posting without positions?
+            # For now, let's raise to make the failure explicit.
+            raise RuntimeError(
+                f'Could not fetch diff or head commit for PR #{pr_number}'
+            ) from e
 
         api_comments = []
         general_comments = []
         for comment in comments:
             if comment.path and comment.line:
-                api_comments.append(
-                    {
-                        'path': comment.path,
-                        'line': comment.line,
-                        'body': comment.comment,
-                    }
-                )
+                # Map head commit line number to diff position
+                position = self._map_line_to_position(diff, comment.path, comment.line)
+                if position:
+                    api_comments.append(
+                        {
+                            'path': comment.path,
+                            'position': position,  # Use position instead of line
+                            'body': comment.comment,
+                        }
+                    )
+                else:
+                    # Could not map line to position, post as general comment
+                    logger.warning(
+                        f'Could not map {comment.path}:{comment.line} to diff position. Adding as general comment.'
+                    )
+                    general_comments.append(
+                        f'(Unpositioned) {comment.path}:{comment.line}: {comment.comment}'
+                    )
             else:
                 # Collect comments without path/line for the main review body
                 general_comments.append(comment.comment)
 
         # Construct the main review body
-        review_body = 'OpenHands AI Code Review:\n\n'
+        review_body = 'OpenHands AI Code Review:\\n\\n'
         if general_comments:
             review_body += (
-                '**General Feedback:**\n'
-                + '\n'.join([f'- {gc}' for gc in general_comments])
-                + '\n\n'
+                '**General Feedback / Unpositioned Comments:**\\n'  # Updated title
+                + '\\n'.join([f'- {gc}' for gc in general_comments])
+                + '\\n\\n'
             )
-        if api_comments:
+        if api_comments:  # Check if there are any positioned comments left
             review_body += '**Line-Specific Feedback:** (see comments below)'
+        # If only general comments exist, the line-specific part is omitted.
 
         review_data = {
             'body': review_body.strip(),
             'event': 'COMMENT',  # Post comments without changing PR state
-            'comments': api_comments,
+            'comments': api_comments,  # This now contains comments with 'position'
+            'commit_id': head_commit_sha,  # commit_id is recommended when using position
         }
 
         async with httpx.AsyncClient() as client:
