@@ -10,7 +10,7 @@
     "@heroui/react": "2.7.6",
     "@microlink/react-json-view": "^1.26.1",
     "@monaco-editor/react": "^4.7.0-rc.0",
-    "@react-router/node": "^7.5.1",
+    "@react-router/node": "^7.9.4",
     "@react-router/serve": "^7.5.1",
     "@react-types/shared": "^3.29.0",
     "@reduxjs/toolkit": "^2.7.0",
